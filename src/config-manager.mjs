@@ -784,9 +784,7 @@ function hasUnmanagedRouterProvider(contents) {
 }
 
 function legacyManagedRouterProvider(contents) {
-  if (!contents.includes(startMarker) || !contents.includes(endMarker)) {
-    return undefined;
-  }
+  const hasManagedRoot = contents.includes(startMarker) && contents.includes(endMarker);
   const lines = contents.split("\n");
   const headers = lines
     .map((line, index) =>
@@ -821,9 +819,16 @@ function legacyManagedRouterProvider(contents) {
 
   const { rootLines } = splitRoot(contents);
   const rootBaseUrl = rootValue(rootLines, "openai_base_url");
+  const providerBaseUrl = fields.get("base_url");
+  // Older refreshes removed the root managed block before temporarily
+  // disabling routing but left their unmarked provider table behind. Adopt
+  // that orphan only when its capability URL exactly matches this install;
+  // every other unmarked table remains user-owned and is refused below.
+  const ownedBaseUrl = hasManagedRoot
+    ? providerBaseUrl === rootBaseUrl && isManagedRouterBaseUrl(rootBaseUrl)
+    : !rootBaseUrl && providerBaseUrl === configuredRouterBaseUrl();
   const commonFieldsMatch =
-    fields.get("base_url") === rootBaseUrl &&
-    isManagedRouterBaseUrl(rootBaseUrl) &&
+    ownedBaseUrl &&
     fields.get("wire_api") === "responses";
   const currentShape =
     (fields.size === 3 ||
