@@ -24,6 +24,7 @@ function serviceEnv(platform, testRoot, target = "codex") {
     CODEX_ROUTER_STATE_DIR: path.join(testRoot, "router state"),
     MODEL_ROUTER_STATE_DIR: path.join(testRoot, `${target} router state`),
     MODEL_ROUTER_TARGET: target,
+    MODEL_ROUTER_LAUNCH_AGENTS_DIR: path.join(testRoot, "launch-agents"),
     CODEX_ROUTER_SERVICE_PLATFORM: platform,
     XDG_CONFIG_HOME: path.join(testRoot, "xdg config"),
   };
@@ -110,6 +111,63 @@ test("background service definitions render for macOS, Linux, and Windows", () =
   }
 });
 
+test("macOS launchd carries provider base URL overrides without credentials", () => {
+  const testRoot = mkdtempSync(path.join(os.tmpdir(), "codex-router-provider-base-url-"));
+  const baseUrl = "http://127.0.0.1:20128/v1";
+  const secretSentinel = "must-not-enter-launchd";
+  try {
+    const launchd = serviceCommand(
+      "service-macos.mjs",
+      "darwin",
+      testRoot,
+      "render",
+      "codex",
+      root,
+      {
+        DEEPSEEK_API_BASE_URL: baseUrl,
+        DEEPSEEK_API_KEY: secretSentinel,
+      },
+    );
+
+    assert.ok(
+      launchd.includes(
+        `<key>DEEPSEEK_API_BASE_URL</key>\n    <string>${launchdXml(baseUrl)}</string>`,
+      ),
+    );
+    assert.doesNotMatch(launchd, /DEEPSEEK_API_KEY/);
+    assert.doesNotMatch(launchd, new RegExp(secretSentinel));
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
+test("macOS launchd preserves an installed provider base URL override", () => {
+  const testRoot = mkdtempSync(path.join(os.tmpdir(), "codex-router-provider-base-url-"));
+  const launchAgents = path.join(testRoot, "launch-agents");
+  const launchAgent = path.join(launchAgents, "io.github.codex-router.plist");
+  const baseUrl = "http://127.0.0.1:20128/v1";
+  try {
+    mkdirSync(launchAgents, { recursive: true });
+    writeFileSync(
+      launchAgent,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>EnvironmentVariables</key><dict>
+<key>DEEPSEEK_API_BASE_URL</key><string>${launchdXml(baseUrl)}</string>
+</dict></dict></plist>\n`,
+    );
+
+    const launchd = serviceCommand("service-macos.mjs", "darwin", testRoot);
+    assert.ok(
+      launchd.includes(
+        `<key>DEEPSEEK_API_BASE_URL</key>\n    <string>${launchdXml(baseUrl)}</string>`,
+      ),
+    );
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
 test("packaged services preserve wrapper and PATH values with service-safe quoting", () => {
   const testRoot = mkdtempSync(path.join(os.tmpdir(), "codex-router-packaged-service-"));
   const stableRoot = path.join(testRoot, "opt % router", "libexec");
@@ -119,6 +177,7 @@ test("packaged services preserve wrapper and PATH values with service-safe quoti
     CODEX_ROUTER_SOURCE_ROOT: stableRoot,
     CODEX_ROUTER_NODE_BIN: stableNode,
     CODEX_ROUTER_PACKAGE_MANAGER: "homebrew",
+    MODEL_ROUTER_REGISTRY: path.join(root, "config"),
     PATH: servicePath,
   };
   try {
