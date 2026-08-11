@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SOURCE_ROOT } from "./paths.mjs";
+import { CONFIG_PATH, SOURCE_ROOT } from "./paths.mjs";
 
 function nodeRunner(script, args) {
   return spawnSync(process.execPath, [path.join(SOURCE_ROOT, "src", script), ...args], {
@@ -28,6 +29,41 @@ function restoreTransport(run, signed) {
   checked(run, "config-manager.mjs", ["enable"]);
   if (signed) checked(run, "config-manager.mjs", ["signed-enable"]);
   checked(run, "catalog.mjs", []);
+}
+
+export function reconcileConfig(run = nodeRunner) {
+  checked(run, "config-manager.mjs", ["reconcile"]);
+}
+
+export function observeConfig({
+  run = nodeRunner,
+  watchImpl = watch,
+  delayMs = 200,
+  report = (message) => process.stderr.write(`${message}\n`),
+} = {}) {
+  let timer;
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      try {
+        reconcileConfig(run);
+      } catch (error) {
+        report(
+          `[codex-router] config lifecycle reconciliation failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }, delayMs);
+  };
+  const watcher = watchImpl(path.dirname(CONFIG_PATH), (_event, filename) => {
+    if (filename == null || String(filename) === path.basename(CONFIG_PATH)) schedule();
+  });
+  return () => {
+    clearTimeout(timer);
+    watcher.close();
+  };
 }
 
 export function installSignalRecovery(
