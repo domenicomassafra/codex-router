@@ -846,6 +846,41 @@ function legacyManagedRouterProvider(contents) {
     : undefined;
 }
 
+function markedManagedRouterProviderIsOwned(contents) {
+  const expected = [
+    providerStartMarker,
+    `[model_providers.${routerProviderId}]`,
+    'name = "Codex Router (external models)"',
+    `base_url = ${JSON.stringify(configuredRouterBaseUrl())}`,
+    'wire_api = "responses"',
+    providerEndMarker,
+  ].join("\n");
+  const first = contents.indexOf(expected);
+  return (
+    first !== -1 &&
+    contents.indexOf(expected, first + expected.length) === -1 &&
+    !hasUnmanagedRouterProvider(contents)
+  );
+}
+
+function recoverableSignedProviderSource(contents, state) {
+  if (
+    state?.version !== 3 ||
+    state.mode !== "root-openai" ||
+    state.managedProvider !== "openai" ||
+    state.managedBaseUrl !== configuredRouterBaseUrl() ||
+    state.previousProviderSections.length !== 0
+  ) {
+    return undefined;
+  }
+  const { rootLines } = splitRoot(contents);
+  const activeProvider = rootValue(rootLines, "model_provider") || "openai";
+  if (activeProvider !== state.managedProvider) return undefined;
+  const legacy = legacyManagedRouterProvider(contents);
+  if (legacy) return removeLegacyManagedRouterProvider(contents, legacy);
+  return markedManagedRouterProviderIsOwned(contents) ? contents : undefined;
+}
+
 function removeLegacyManagedRouterProvider(contents, provider) {
   return [
     ...provider.lines.slice(0, provider.start),
@@ -1041,6 +1076,7 @@ function atomicWrite(contents) {
 if (!new Set([
   "enable",
   "disable",
+  "reconcile",
   "status",
   "login-free-enable",
   "login-free-disable",
@@ -1048,7 +1084,7 @@ if (!new Set([
   "signed-disable",
 ]).has(command)) {
   console.error(
-    "Usage: config-manager.mjs enable|disable|status|login-free-enable|login-free-disable|signed-enable|signed-disable [--adopt-native-catalog]",
+    "Usage: config-manager.mjs enable|disable|reconcile|status|login-free-enable|login-free-disable|signed-enable|signed-disable [--adopt-native-catalog]",
   );
   process.exit(2);
 }
@@ -1064,7 +1100,41 @@ let pendingProviderModeState;
 let clearNativeCatalogSourceAfterWrite = false;
 let activateNativeCatalogSourceAfterWrite = false;
 let pendingSignedProviderModeState;
-if (command === "enable") {
+if (command === "reconcile") {
+  const signedState = readSignedProviderModeState();
+  if (signedState) {
+    if (signedProviderStateIsOwned(current, signedState)) {
+      next = current;
+    } else {
+      const recoverable = recoverableSignedProviderSource(current, signedState);
+      if (!recoverable) {
+        throw new Error(
+          `Signed routing lost ownership while model_provider is ${
+            rootValue(splitRoot(current).rootLines, "model_provider") || "openai"
+          }; refusing to reconcile it.`,
+        );
+      }
+      const enabled = enabledContents(recoverable);
+      const refreshed = managedSignedProviderContents(
+        enabled,
+        signedState.managedProvider,
+        configuredRouterBaseUrl(),
+      );
+      next = refreshed.contents;
+      pendingSignedProviderModeState = refreshed.state;
+    }
+  } else {
+    const status = snapshot(current);
+    if (status.mode === "router") {
+      next = current;
+    } else {
+      const orphan = legacyManagedRouterProvider(current);
+      next = orphan
+        ? enabledContents(removeLegacyManagedRouterProvider(current, orphan))
+        : current;
+    }
+  }
+} else if (command === "enable") {
   const signedState = readSignedProviderModeState();
   if (signedState?.version === 1) {
     throw new Error(
@@ -1247,6 +1317,10 @@ if (command === "enable") {
       ].join("\n").trimEnd()}\n`;
     }
   }
+}
+if (command === "reconcile" && next === current) {
+  process.stdout.write(`${JSON.stringify(snapshot(current))}\n`);
+  process.exit(0);
 }
 if (existsSync(CONFIG_PATH) && !existsSync(BACKUP_PATH)) {
   copyFileSync(CONFIG_PATH, BACKUP_PATH);

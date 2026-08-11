@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { assertCallerSecret } from "./caller-auth.mjs";
+import { observeConfig, reconcileConfig } from "./refresh-catalog.mjs";
 import {
   CALLER_SECRET_PATH,
   INTERNAL_SECRET_PATH,
@@ -79,6 +80,8 @@ if (!internalKey) throw new Error("Internal service key is empty.");
 const callerKey = assertCallerSecret(
   readFileSync(CALLER_SECRET_PATH, "utf8").trim(),
 );
+reconcileConfig();
+const stopConfigObservation = observeConfig();
 writeLiteLlmConfig();
 
 // A checked local model means the operator intends to route through Ollama,
@@ -177,6 +180,7 @@ function waitForHealth(label, url, headers = {}, timeoutMs = 30_000, expectedSer
 function stopChildren() {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopConfigObservation();
   for (const child of children) {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
   }
