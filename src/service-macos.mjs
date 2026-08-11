@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { PROVIDERS } from "./model-registry.mjs";
 import {
   CODEX_HOME,
   LAUNCH_AGENT_PATH,
@@ -32,6 +33,7 @@ const service = `${domain}/${SERVICE_LABEL}`;
 const launchctl = "/bin/launchctl";
 const launchctlRetryWait = new Int32Array(new SharedArrayBuffer(4));
 const nodeBinary = process.env.CODEX_ROUTER_NODE_BIN || process.execPath;
+const plutil = "/usr/bin/plutil";
 if (!path.isAbsolute(nodeBinary)) {
   throw new Error("CODEX_ROUTER_NODE_BIN must be an absolute path.");
 }
@@ -43,6 +45,32 @@ function xml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+function installedProviderBaseUrl(name) {
+  if (effectivePlatform !== "darwin" || !existsSync(LAUNCH_AGENT_PATH) || !existsSync(plutil)) {
+    return undefined;
+  }
+  try {
+    return execFileSync(
+      plutil,
+      ["-extract", `EnvironmentVariables.${name}`, "raw", "-o", "-", LAUNCH_AGENT_PATH],
+      { encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function providerBaseUrlOverrides() {
+  const overrides = {};
+  for (const provider of PROVIDERS.values()) {
+    const name = provider.baseUrlEnv;
+    if (typeof name !== "string" || !name) continue;
+    const value = process.env[name]?.trim() || installedProviderBaseUrl(name);
+    if (value) overrides[name] = value;
+  }
+  return overrides;
 }
 
 function environmentEntries() {
@@ -64,6 +92,7 @@ function environmentEntries() {
     CODEX_ROUTER_OAUTH_PORT: String(PORTS.oauth),
     CODEX_ROUTER_PORT: String(PORTS.router),
     CODEX_ROUTER_API_PORT: String(PORTS.api),
+    ...providerBaseUrlOverrides(),
     ...(process.env.CODEX_ROUTER_SOURCE_ROOT
       ? { CODEX_ROUTER_SOURCE_ROOT: SOURCE_ROOT }
       : {}),
