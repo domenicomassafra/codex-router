@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { refreshCatalog } from "../src/refresh-catalog.mjs";
+import { installSignalRecovery, refreshCatalog } from "../src/refresh-catalog.mjs";
 
 function recordingRunner({ signed = true, failAt } = {}) {
   const calls = [];
@@ -69,4 +70,28 @@ test("ordinary routed refresh also republishes external models after restore", (
     ["config-manager.mjs", ["enable"]],
     ["catalog.mjs", []],
   ]);
+});
+
+test("an interrupted refresh restores routing before exiting", () => {
+  const signals = new EventEmitter();
+  const exits = [];
+  const reports = [];
+  let restores = 0;
+  installSignalRecovery(
+    () => {
+      restores += 1;
+    },
+    {
+      signalTarget: signals,
+      exit: (code) => exits.push(code),
+      report: (message) => reports.push(message),
+    },
+  );
+
+  signals.emit("SIGTERM");
+  signals.emit("SIGTERM");
+
+  assert.equal(restores, 1);
+  assert.deepEqual(exits, [143]);
+  assert.deepEqual(reports, []);
 });

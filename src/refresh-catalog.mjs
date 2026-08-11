@@ -30,7 +30,44 @@ function restoreTransport(run, signed) {
   checked(run, "catalog.mjs", []);
 }
 
-export function refreshCatalog({ run = nodeRunner } = {}) {
+export function installSignalRecovery(
+  restore,
+  {
+    signalTarget = process,
+    exit = (code) => process.exit(code),
+    report = (message) => process.stderr.write(`${message}\n`),
+  } = {},
+) {
+  let active = true;
+  const exitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+  const handlers = new Map(
+    Object.keys(exitCodes).map((signal) => [
+      signal,
+      () => {
+        if (!active) return;
+        active = false;
+        for (const [name, handler] of handlers) signalTarget.removeListener(name, handler);
+        try {
+          restore();
+        } catch {
+          report("Catalog refresh was interrupted and the routing transport could not be restored.");
+        }
+        exit(exitCodes[signal]);
+      },
+    ]),
+  );
+  for (const [signal, handler] of handlers) signalTarget.on(signal, handler);
+  return () => {
+    if (!active) return;
+    active = false;
+    for (const [signal, handler] of handlers) signalTarget.removeListener(signal, handler);
+  };
+}
+
+export function refreshCatalog({
+  run = nodeRunner,
+  recoveryInstaller = run === nodeRunner ? installSignalRecovery : undefined,
+} = {}) {
   const statusResult = checked(run, "config-manager.mjs", ["status"]);
   let status;
   try {
@@ -41,11 +78,17 @@ export function refreshCatalog({ run = nodeRunner } = {}) {
   const routed = status.mode === "router";
   const signed = status.signed_routing === true;
   let restoreNeeded = false;
+  let removeSignalRecovery;
   let catalogResult;
   try {
     if (routed) {
       checked(run, "config-manager.mjs", ["disable"]);
       restoreNeeded = true;
+      removeSignalRecovery = recoveryInstaller?.(() => {
+        if (!restoreNeeded) return;
+        restoreNeeded = false;
+        restoreTransport(run, signed);
+      });
     }
     catalogResult = checked(run, "catalog.mjs", ["--refresh-native", "--bundled-native"]);
     if (restoreNeeded) {
@@ -65,6 +108,8 @@ export function refreshCatalog({ run = nodeRunner } = {}) {
       }
     }
     throw error;
+  } finally {
+    removeSignalRecovery?.();
   }
   return { catalogOutput: catalogResult.stdout || "" };
 }
