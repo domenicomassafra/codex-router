@@ -531,6 +531,30 @@ test("config manager adopts the exact legacy router-owned provider table", () =>
   }
 });
 
+test("config manager adopts an exact router-owned provider orphaned by refresh", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-provider-orphan-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+
+  try {
+    run("enable", codexHome, stateDir);
+    const orphaned = readFileSync(configPath, "utf8")
+      .replace(/# BEGIN codex-router-managed[\s\S]*?# END codex-router-managed\n?/, "")
+      .replace("# BEGIN codex-router-provider-managed\n", "")
+      .replace("\n# END codex-router-provider-managed", "");
+    writeFileSync(configPath, orphaned, { mode: 0o600 });
+
+    const enabled = run("enable", codexHome, stateDir);
+    assert.equal(enabled.mode, "router");
+    const migrated = readFileSync(configPath, "utf8");
+    assert.equal((migrated.match(/\[model_providers\.codex-router\]/g) || []).length, 1);
+    assert.match(migrated, /# BEGIN codex-router-managed/);
+    assert.match(migrated, /# BEGIN codex-router-provider-managed/);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("config manager refuses a modified legacy router provider table", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-provider-modified-"));
   const stateDir = path.join(codexHome, "router-state");
