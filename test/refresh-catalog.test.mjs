@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { installSignalRecovery, refreshCatalog } from "../src/refresh-catalog.mjs";
+import {
+  installSignalRecovery,
+  observeConfig,
+  reconcileConfig,
+  refreshCatalog,
+} from "../src/refresh-catalog.mjs";
 
 function recordingRunner({ signed = true, failAt } = {}) {
   const calls = [];
@@ -94,4 +99,33 @@ test("an interrupted refresh restores routing before exiting", () => {
   assert.equal(restores, 1);
   assert.deepEqual(exits, [143]);
   assert.deepEqual(reports, []);
+});
+
+test("config reconciliation delegates to the canonical config manager", () => {
+  const runner = recordingRunner();
+  reconcileConfig(runner.run);
+  assert.deepEqual(runner.calls, [["config-manager.mjs", ["reconcile"]]]);
+});
+
+test("config observation coalesces app lifecycle rewrites", async () => {
+  const runner = recordingRunner();
+  let notify;
+  let closed = 0;
+  const stop = observeConfig({
+    run: runner.run,
+    delayMs: 5,
+    watchImpl(_directory, callback) {
+      notify = callback;
+      return { close: () => (closed += 1) };
+    },
+  });
+
+  notify("change", "other.toml");
+  notify("rename", "config.toml");
+  notify("change", "config.toml");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  stop();
+
+  assert.deepEqual(runner.calls, [["config-manager.mjs", ["reconcile"]]]);
+  assert.equal(closed, 1);
 });
