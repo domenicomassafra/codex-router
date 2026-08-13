@@ -1,4 +1,4 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -76,9 +76,11 @@ export function writeLiteLlmConfig(target = LITELLM_CONFIG_PATH) {
   if (target === LITELLM_CONFIG_PATH) {
     assertStateOwnership("write the gateway routing config");
   }
+  const contents = renderLiteLlmConfig();
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+  if (existsSync(target) && readFileSync(target, "utf8") === contents) return target;
   const temporary = `${target}.tmp.${process.pid}`;
-  writeFileSync(temporary, renderLiteLlmConfig(), { encoding: "utf8", mode: 0o600 });
+  writeFileSync(temporary, contents, { encoding: "utf8", mode: 0o600 });
   protectPrivateFile(temporary);
   renameSync(temporary, target);
   protectPrivateFile(target);

@@ -1069,6 +1069,29 @@ model_provider = "openai"
   }
 });
 
+test("ordinary enable is a no-op for a healthy signed install", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-idempotent-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(configPath, 'model = "opencode-go/deepseek-v4-flash"\nmodel_provider = "openai"\n', { mode: 0o600 });
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    path.join(stateDir, "merged-models.json"),
+    JSON.stringify({ models: [{ slug: "opencode-go/deepseek-v4-flash", visibility: "list" }] }),
+    { mode: 0o600 },
+  );
+  try {
+    run("signed-enable", codexHome, stateDir);
+    run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
+    const before = readFileSync(configPath, "utf8");
+    const refreshed = run("enable", codexHome, stateDir);
+    assert.equal(refreshed.signed_routing, true);
+    assert.equal(readFileSync(configPath, "utf8"), before);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("ordinary enable drops an orphaned signed slot before recreating signed routing", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-orphaned-slot-"));
   const stateDir = path.join(codexHome, "router-state");
