@@ -6,6 +6,20 @@
 
 const DETAIL_LIMIT = 300;
 
+const OPENCODE_GO_REGION_ERROR =
+  /only available hosted in China[\s\S]*requires explicit opt in/i;
+
+// A Go 403 is ambiguous: the upstream uses the same RegionError when the
+// workspace has not opted in and when the router is presenting a credential
+// bound to a different workspace. Keep that distinction explicit so callers
+// can record the correct remediation without ever inspecting a secret.
+export function classifyOpenCodeGo403({ status, detail, optInConfirmed = false }) {
+  if (status !== 403 || typeof detail !== "string" || !OPENCODE_GO_REGION_ERROR.test(detail)) {
+    return undefined;
+  }
+  return optInConfirmed ? "stale-credential-or-account-binding" : "opt-in-required";
+}
+
 // LiteLLM appends its routing state after the upstream message; neither line
 // helps the caller and both leak internal gateway naming.
 const ROUTING_NOISE = [
@@ -116,6 +130,7 @@ function describeFailure({
   errorType,
   modelName,
   providerName,
+  providerId,
   providerKind,
   retryAfterSeconds,
 }) {
@@ -132,6 +147,14 @@ function describeFailure({
     return {
       type: "billing_error",
       message: `You have run out of usage at ${providerName} for ${modelName}. Top up or check the plan on your ${providerName} account.`,
+    };
+  }
+  if (providerId === "opencode-go" && classifyOpenCodeGo403({ status, detail })) {
+    return {
+      type: "permission_error",
+      message:
+        `${providerName} accepted the stored key, but the Go workspace bound to that key does not permit China-hosted ${modelName}. ` +
+        "If the opt-in is already enabled in the browser, refresh the router key from that same OpenCode Go workspace; the browser session and API key can be bound to different workspaces.",
     };
   }
   if (status === 401 || status === 403) {
@@ -186,6 +209,7 @@ export function translateGatewayError({
   bodyText,
   modelName,
   providerName,
+  providerId,
   providerKind,
   retryAfterSeconds,
 }) {
@@ -196,6 +220,7 @@ export function translateGatewayError({
     errorType: parseUpstreamError(bodyText).type,
     modelName,
     providerName,
+    providerId,
     providerKind,
     retryAfterSeconds,
   });
