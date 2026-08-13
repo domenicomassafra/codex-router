@@ -281,6 +281,24 @@ const BASELINE_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"];
 const EFFORT_LADDER = [...BASELINE_EFFORTS, "max", "ultra"];
 const MAX_EFFORT_SINCE = [0, 143, 0];
 
+// The Codex App is intentionally a focused OpenCode Go surface: publishing
+// every subscription model makes its picker noisy and obscures the two
+// DeepSeek routes the owner has selected.  This is a publication policy only;
+// the router registry still retains the official DeepSeek provider as its
+// separately-addressable fallback and keeps the remaining OpenCode entries
+// available to their own consumers.
+export const CODEX_APP_OPENCODE_GO_ALLOWLIST = new Set([
+  "opencode-go/deepseek-v4-flash",
+  "opencode-go/deepseek-v4-pro",
+]);
+
+export function codexAppPublishedModels(models) {
+  return models.filter((model) => {
+    const slug = String(model?.slug || "");
+    return !slug.startsWith("opencode-go") || CODEX_APP_OPENCODE_GO_ALLOWLIST.has(slug);
+  });
+}
+
 export function codexEffortVocabulary(version) {
   const match = /(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?/.exec(String(version || ""));
   if (!match) return new Set(BASELINE_EFFORTS);
@@ -706,7 +724,7 @@ function main() {
   assertStateOwnership("write the Codex model catalog");
   const userSlugs = new Set(readUserModels().map((model) => String(model.slug)));
   const hiddenModels = readHiddenModels();
-  const selectedModels = selectedConfiguredListedModels();
+  const selectedModels = codexAppPublishedModels(selectedConfiguredListedModels());
   const multiAgentSettings = readMultiAgentSettings();
   const allMultiAgentModels = applyMultiAgentSettings(
     selectedModels,
