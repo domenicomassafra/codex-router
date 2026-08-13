@@ -1078,11 +1078,12 @@ if (!new Set([
   "status",
   "login-free-enable",
   "login-free-disable",
+  "signed-model-set",
   "signed-enable",
   "signed-disable",
 ]).has(command)) {
   console.error(
-    "Usage: config-manager.mjs enable|disable|reconcile|status|login-free-enable|login-free-disable|signed-enable|signed-disable [--adopt-native-catalog]",
+    "Usage: config-manager.mjs enable|disable|reconcile|status|login-free-enable|login-free-disable|signed-model-set <model-slug>|signed-enable|signed-disable [--adopt-native-catalog]",
   );
   process.exit(2);
 }
@@ -1090,6 +1091,27 @@ if (!new Set([
 const current = existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf8") : "";
 if (command === "status") {
   process.stdout.write(`${JSON.stringify(snapshot(current))}\n`);
+  process.exit(0);
+}
+
+if (command === "signed-model-set") {
+  const requestedModel = String(process.argv[3] || "").trim();
+  if (!requestedModel) throw new Error("Usage: config-manager.mjs signed-model-set <model-slug>");
+  const signedState = readSignedProviderModeState();
+  if (!signedState || !signedProviderStateIsOwned(current, signedState)) {
+    throw new Error("Signed routing is not currently owned by this router.");
+  }
+  let catalog;
+  try { catalog = JSON.parse(readFileSync(MERGED_CATALOG_PATH, "utf8")); }
+  catch { throw new Error("Merged model catalog is invalid or missing."); }
+  const entry = Array.isArray(catalog?.models)
+    ? catalog.models.find((model) => model?.slug === requestedModel)
+    : undefined;
+  if (!entry || entry.visibility === "hide") {
+    throw new Error(`Model is not published by the current Codex catalog: ${requestedModel}`);
+  }
+  atomicWrite(`${replaceRootValue(current, "model", requestedModel)}\n`);
+  process.stdout.write(`${JSON.stringify({ model: requestedModel, provider: signedState.managedProvider })}\n`);
   process.exit(0);
 }
 
