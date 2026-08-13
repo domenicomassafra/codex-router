@@ -139,6 +139,12 @@ const commonEnv = {
   // (e.g. cp1252) that raises UnicodeEncodeError and the child never comes up.
   PYTHONIOENCODING: "utf-8",
   PYTHONUTF8: "1",
+  // httpx accepts comma-separated NO_PROXY hosts but treats a bare IPv6
+  // loopback (`::1`) as a malformed host:port. The router is loopback-only,
+  // so pass the portable entries explicitly to every child rather than
+  // inheriting a desktop shell's proxy bypass list into LiteLLM.
+  NO_PROXY: "127.0.0.1,localhost",
+  no_proxy: "127.0.0.1,localhost",
 };
 
 const children = [];

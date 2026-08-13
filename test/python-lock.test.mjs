@@ -232,6 +232,8 @@ test("the CI gateway verifier starts LiteLLM with the environment start.mjs uses
     ["LITELLM_LOG", "ERROR"],
     ["LITELLM_TELEMETRY", "False"],
     ["NO_COLOR", "1"],
+    ["NO_PROXY", "127.0.0.1,localhost"],
+    ["no_proxy", "127.0.0.1,localhost"],
   ]) {
     assert.ok(
       new RegExp(`${name}:\\s*"${value}"`).test(starter),
