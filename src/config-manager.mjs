@@ -666,15 +666,22 @@ function managedSignedProviderContents(contents, managedProvider, managedBaseUrl
 function signedProviderStateIsOwned(contents, state) {
   const { rootLines } = splitRoot(contents);
   const activeProvider = rootValue(rootLines, "model_provider") || "openai";
-  if (activeProvider !== state.managedProvider) return false;
   if (state.version === 1) return activeProvider === signedProviderId;
   if (state.mode === "root-openai") {
     return (
+      activeProvider === "openai" &&
       isManagedRouterBaseUrl(rootValue(rootLines, "openai_base_url")) &&
       (state.version !== 3 || signedProviderBlockIsOwned(contents, state))
     );
   }
-  return signedProviderBlockIsOwned(contents, state);
+  // Codex may reset only the root provider to OpenAI while changing account,
+  // model, or app state. The managed table remains the ownership boundary:
+  // accept that native-idle state, but never an altered table or another
+  // provider id.
+  return (
+    (activeProvider === state.managedProvider || activeProvider === "openai") &&
+    signedProviderBlockIsOwned(contents, state)
+  );
 }
 
 function readProviderModeState() {
@@ -1110,7 +1117,11 @@ if (command === "signed-model-set") {
   if (!entry || entry.visibility === "hide") {
     throw new Error(`Model is not published by the current Codex catalog: ${requestedModel}`);
   }
-  atomicWrite(`${replaceRootValue(current, "model", requestedModel)}\n`);
+  let next = replaceRootValue(current, "model", requestedModel);
+  if (signedState.mode === "provider-table") {
+    next = replaceRootValue(next, "model_provider", signedState.managedProvider);
+  }
+  atomicWrite(`${next}\n`);
   process.stdout.write(`${JSON.stringify({ model: requestedModel, provider: signedState.managedProvider })}\n`);
   process.exit(0);
 }
