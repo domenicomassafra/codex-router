@@ -88,6 +88,12 @@ export function recordInstall() {
     providers: providerSelectionStatus().providers,
     skills,
   };
+  const prior = previous?.current;
+  if (prior) {
+    const { installedAt: _priorInstalledAt, ...priorIdentity } = prior;
+    const { installedAt: _currentInstalledAt, ...currentIdentity } = current;
+    if (JSON.stringify(priorIdentity) === JSON.stringify(currentIdentity)) return previous;
+  }
   const previousEntry = previous?.current;
   const history = [
     ...(previousEntry && previousEntry.commit !== current.commit ? [previousEntry] : []),

@@ -131,6 +131,7 @@ function readModelsCache() {
 
 function atomicContents(target, contents) {
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+  if (existsSync(target) && readFileSync(target, "utf8") === contents) return false;
   const temporary = `${target}.tmp.${process.pid}`;
   writeFileSync(temporary, contents, {
     encoding: "utf8",
@@ -139,6 +140,7 @@ function atomicContents(target, contents) {
   protectPrivateFile(temporary);
   renameSync(temporary, target);
   protectPrivateFile(target);
+  return true;
 }
 
 function atomicJson(target, value) {

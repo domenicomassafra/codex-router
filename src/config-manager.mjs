@@ -1327,6 +1327,11 @@ if (command === "reconcile") {
         }; refusing to update it.`,
       );
     }
+    // A healthy signed install is already the canonical shape.  Do not churn
+    // its ownership id or config inode during an idempotent installer apply.
+    if (signedState.version === 3 && signedState.managedBaseUrl === configuredRouterBaseUrl()) {
+      next = current;
+    } else {
     const restored = restoreSignedProviderTable(current, signedState);
     // Rebuild the ordinary managed block from a neutral root selector.  A
     // routed task leaves `model_provider = "codex-router"` behind by design;
@@ -1344,6 +1349,7 @@ if (command === "reconcile") {
     );
     next = refreshed.contents;
     pendingSignedProviderModeState = refreshed.state;
+    }
   } else {
     next = enabledContents(current);
   }

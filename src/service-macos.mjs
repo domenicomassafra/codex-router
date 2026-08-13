@@ -4,6 +4,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -182,11 +183,11 @@ function bootout(targetService = service) {
   }
 }
 
-function writePlist() {
+function writePlist(contents = plist()) {
   mkdirSync(path.dirname(LAUNCH_AGENT_PATH), { recursive: true });
   mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
   const temporary = `${LAUNCH_AGENT_PATH}.tmp.${process.pid}`;
-  writeFileSync(temporary, plist(), { encoding: "utf8", mode: 0o644 });
+  writeFileSync(temporary, contents, { encoding: "utf8", mode: 0o644 });
   chmodSync(temporary, 0o644);
   renameSync(temporary, LAUNCH_AGENT_PATH);
 }
@@ -231,6 +232,11 @@ if (command === "render") {
     })}\n`,
   );
 } else if (command === "install") {
+  const desired = plist();
+  if (existsSync(LAUNCH_AGENT_PATH) && readFileSync(LAUNCH_AGENT_PATH, "utf8") === desired && loaded()) {
+    process.stdout.write(`${JSON.stringify({ installed: true, path: LAUNCH_AGENT_PATH, unchanged: true })}\n`);
+    process.exit(0);
+  }
   bootout();
   // Only safe here. launchd opens StandardOutPath before it execs the service,
   // so a rotation performed by the started process renames a file the process
@@ -239,7 +245,7 @@ if (command === "render") {
   // bootout and bootstrap nothing holds it and the next start creates a fresh
   // file. Failures are ignored -- housekeeping must not block an install.
   rotateLog(LOG_PATH);
-  writePlist();
+  writePlist(desired);
   bootstrap();
   process.stdout.write(`${JSON.stringify({ installed: true, path: LAUNCH_AGENT_PATH })}\n`);
 } else if (command === "uninstall") {
