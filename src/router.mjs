@@ -1830,6 +1830,7 @@ async function handleResponses(request, response, requestUrl) {
           bodyText: await upstream.text(),
           modelName: route.displayName || route.slug,
           providerName: provider?.ownedBy || provider?.displayName || route.provider,
+          providerId: route.provider,
           providerKind: provider?.kind,
           retryAfterSeconds: Number.isFinite(retryAfterSeconds)
             ? retryAfterSeconds

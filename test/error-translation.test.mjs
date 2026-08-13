@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  classifyOpenCodeGo403,
   extractUpstreamDetail,
   translateGatewayError,
 } from "../src/error-translation.mjs";
@@ -35,6 +36,39 @@ test("extractUpstreamDetail falls back to truncated raw text for non-JSON bodies
 test("extractUpstreamDetail returns empty string for empty bodies", () => {
   assert.equal(extractUpstreamDetail(""), "");
   assert.equal(extractUpstreamDetail(undefined), "");
+});
+
+test("OpenCode Go region 403 distinguishes confirmed opt-in from missing opt-in", () => {
+  const detail =
+    "The latest version of this model is only available hosted in China and requires explicit opt in.";
+  assert.equal(
+    classifyOpenCodeGo403({ status: 403, detail, optInConfirmed: true }),
+    "stale-credential-or-account-binding",
+  );
+  assert.equal(
+    classifyOpenCodeGo403({ status: 403, detail, optInConfirmed: false }),
+    "opt-in-required",
+  );
+  assert.equal(classifyOpenCodeGo403({ status: 401, detail, optInConfirmed: true }), undefined);
+});
+
+test("OpenCode Go region 403 identifies a workspace binding instead of blaming the key", () => {
+  const payload = translateGatewayError({
+    status: 403,
+    bodyText: JSON.stringify({
+      error: {
+        message:
+          "The latest version of this model is only available hosted in China and requires explicit opt in.",
+      },
+    }),
+    modelName: "DeepSeek V4 Flash",
+    providerName: "opencode",
+    providerId: "opencode-go",
+  });
+  assert.equal(payload.error.type, "permission_error");
+  assert.match(payload.error.message, /workspace bound to that key/);
+  assert.match(payload.error.message, /browser session and API key can be bound to different workspaces/);
+  assert.doesNotMatch(payload.error.message, /rejected the stored credentials/);
 });
 
 test("a 5xx names the provider and keeps the upstream detail", () => {
