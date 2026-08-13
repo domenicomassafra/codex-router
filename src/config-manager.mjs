@@ -962,7 +962,21 @@ function orphanedSignedProviderFooterIsOwned(contents, providerId, baseUrl) {
   if (starts.length !== 0 || ends.length !== 1) return false;
   const ranges = providerTableRanges(contents, providerId);
   if (ranges.length !== 1) return false;
-  const actual = trimBlankEdges(ranges[0].lines.slice(ranges[0].start, ranges[0].end)).join("\n");
+  // TOML comments between this provider and the next table belong to neither
+  // table. Preserve strict ownership of the block itself while permitting
+  // those comments; treating them as part of the block made a harmless
+  // installer footer look user-owned on the next apply.
+  const tableLines = ranges[0].lines.slice(ranges[0].start, ranges[0].end);
+  const footerIndex = tableLines.findIndex(
+    (line) => line.trim() === signedProviderEndMarker,
+  );
+  if (footerIndex === -1) return false;
+  const trailingLines = tableLines.slice(footerIndex + 1);
+  if (trailingLines.some((line) => {
+    const trimmed = line.trim();
+    return trimmed && !trimmed.startsWith("#");
+  })) return false;
+  const actual = trimBlankEdges(tableLines.slice(0, footerIndex + 1)).join("\n");
   const expected = managedSignedProviderBlock(providerId, baseUrl).split("\n").slice(1).join("\n");
   return actual === expected;
 }
@@ -1321,15 +1335,33 @@ if (command === "reconcile") {
   }
   if (signedState) {
     if (!signedProviderStateIsOwned(current, signedState)) {
-      throw new Error(
-        `Signed routing lost ownership while model_provider is ${
-          rootValue(splitRoot(current).rootLines, "model_provider") || "openai"
-        }; refusing to update it.`,
+      // An interrupted older apply can leave the exact managed table with
+      // only its closing signed marker. Treat that narrow, marker-verified
+      // shape like reconcile does: repair it before evaluating idempotence.
+      // Any altered provider block remains user-owned and fail-closed.
+      const recoverable = recoverableSignedProviderSource(current, signedState);
+      if (!recoverable) {
+        throw new Error(
+          `Signed routing lost ownership while model_provider is ${
+            rootValue(splitRoot(current).rootLines, "model_provider") || "openai"
+          }; refusing to update it.`,
+        );
+      }
+      const promoteRouterTable = promotesMarkedRouterTable(recoverable, signedState);
+      const source = promoteRouterTable
+        ? recoverable
+        : enabledContents(recoverable);
+      const refreshed = managedSignedProviderContents(
+        source,
+        promoteRouterTable ? routerProviderId : signedState.managedProvider,
+        configuredRouterBaseUrl(),
       );
+      next = refreshed.contents;
+      pendingSignedProviderModeState = refreshed.state;
     }
     // A healthy signed install is already the canonical shape.  Do not churn
     // its ownership id or config inode during an idempotent installer apply.
-    if (signedState.version === 3 && signedState.managedBaseUrl === configuredRouterBaseUrl()) {
+    else if (signedState.version === 3 && signedState.managedBaseUrl === configuredRouterBaseUrl()) {
       next = current;
     } else {
     const restored = restoreSignedProviderTable(current, signedState);
