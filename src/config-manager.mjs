@@ -953,7 +953,9 @@ function snapshot(contents) {
         : "native",
     model: rootValue(rootLines, "model") || null,
     model_provider: activeProvider,
-    login_free: rootValue(rootLines, "model_provider") === routerProviderId,
+    login_free:
+      rootValue(rootLines, "model_provider") === routerProviderId &&
+      existsSync(CODEX_PROVIDER_MODE_PATH),
     login_free_managed:
       rootValue(rootLines, "model_provider") === routerProviderId &&
       existsSync(CODEX_PROVIDER_MODE_PATH),
