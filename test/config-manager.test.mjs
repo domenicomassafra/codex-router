@@ -916,7 +916,7 @@ Authorization = "Bearer PROVIDER_HEADER_SECRET"
   }
 });
 
-test("signed-model-set changes only the root model after catalog publication", () => {
+test("signed-model-set promotes a native root to the router provider after catalog publication", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-model-set-"));
   const stateDir = path.join(codexHome, "router-state");
   const configPath = path.join(codexHome, "config.toml");
@@ -929,7 +929,11 @@ test("signed-model-set changes only the root model after catalog publication", (
     run("signed-enable", codexHome, stateDir);
     const result = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
     assert.equal(result.model, "opencode-go/deepseek-v4-flash");
-    assert.match(readFileSync(configPath, "utf8"), /^model = "opencode-go\/deepseek-v4-flash"/m);
+    assert.equal(result.provider, "codex-router");
+    const configured = readFileSync(configPath, "utf8");
+    assert.match(configured, /^model = "opencode-go\/deepseek-v4-flash"/m);
+    assert.match(configured, /^model_provider = "codex-router"$/m);
+    assert.match(configured, /# BEGIN codex-router-signed-provider-managed/);
   } finally {
     rmSync(codexHome, { recursive: true, force: true });
   }
