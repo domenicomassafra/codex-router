@@ -852,35 +852,55 @@ function legacyManagedRouterProvider(contents) {
 }
 
 function markedManagedRouterProviderIsOwned(contents) {
-  const expected = [
+  const expectedBase = [
     providerStartMarker,
     `[model_providers.${routerProviderId}]`,
     'name = "Codex Router (external models)"',
     `base_url = ${JSON.stringify(configuredRouterBaseUrl())}`,
     'wire_api = "responses"',
-    providerEndMarker,
-  ].join("\n");
-  const first = contents.indexOf(expected);
-  return (
-    first !== -1 &&
-    contents.indexOf(expected, first + expected.length) === -1 &&
-    !hasUnmanagedRouterProvider(contents)
-  );
+  ];
+  return [
+    expectedBase,
+    [...expectedBase, "supports_standalone_web_search = true"],
+  ].some((lines) => {
+    const expected = [...lines, providerEndMarker].join("\n");
+    const first = contents.indexOf(expected);
+    return (
+      first !== -1 &&
+      contents.indexOf(expected, first + expected.length) === -1 &&
+      !hasUnmanagedRouterProvider(contents)
+    );
+  });
 }
 
 function recoverableSignedProviderSource(contents, state) {
-  if (
-    state?.version !== 3 ||
-    state.mode !== "root-openai" ||
-    state.managedProvider !== "openai" ||
-    state.managedBaseUrl !== configuredRouterBaseUrl() ||
-    state.previousProviderSections.length !== 0
-  ) {
+  if (state?.version !== 3 || state.managedBaseUrl !== configuredRouterBaseUrl()) {
     return undefined;
   }
   const { rootLines } = splitRoot(contents);
   const activeProvider = rootValue(rootLines, "model_provider") || "openai";
-  if (activeProvider !== state.managedProvider) return undefined;
+  if (activeProvider !== "openai") return undefined;
+
+  // The app may reset only the root selector while leaving the normal,
+  // marker-owned router table intact. That is a native-idle transition, not
+  // user ownership drift: adopt precisely this table so the next custom
+  // selection can atomically restore its provider. Never adopt an unmarked
+  // or changed provider table.
+  if (
+    state.mode === "provider-table" &&
+    state.managedProvider === routerProviderId &&
+    markedManagedRouterProviderIsOwned(contents)
+  ) {
+    return contents;
+  }
+
+  if (
+    state.mode !== "root-openai" ||
+    state.managedProvider !== "openai" ||
+    state.previousProviderSections.length !== 0
+  ) {
+    return undefined;
+  }
   const legacy = legacyManagedRouterProvider(contents);
   if (legacy) return removeLegacyManagedRouterProvider(contents, legacy);
   return markedManagedRouterProviderIsOwned(contents) ? contents : undefined;
