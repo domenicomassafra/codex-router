@@ -22,6 +22,10 @@ else
   node src/legacy-migration.mjs assert-clear >/dev/null
 fi
 config_manager=src/config-manager.mjs
+signed_routing=false
+if node "$config_manager" status | grep -q '"signed_routing":true'; then
+  signed_routing=true
+fi
 node src/provider-selection.mjs ensure-configured >/dev/null
 node src/secret.mjs ensure
 config_enabled=false
@@ -47,6 +51,10 @@ if [ "$adopt_native_catalog" = true ]; then
   node "$config_manager" enable --adopt-native-catalog
 else
   node "$config_manager" enable
+fi
+if [ "$signed_routing" = true ]; then
+  node "$config_manager" signed-enable
+  node "$config_manager" reconcile
 fi
 service_installed=true
 node src/service.mjs install

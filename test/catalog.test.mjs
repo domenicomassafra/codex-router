@@ -20,6 +20,7 @@ import {
   codexEffortVocabulary,
   nativeCatalogIsReusable,
   deriveBaseInstructions,
+  loginFreeConfigured,
   mergeNativeCatalogs,
   promoteNativeMultiAgent,
   routedCatalogConfigured,
@@ -160,6 +161,20 @@ note = """
   );
   assert.equal(routedCatalogConfigured('model_provider = "custom"\n', "1"), true);
   assert.equal(routedCatalogConfigured('model_provider = "custom"\n', "0"), false);
+});
+
+test("a signed routed task is not mistaken for login-free mode", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "catalog-signed-routing-"));
+  const configPath = path.join(directory, "config.toml");
+  const providerModePath = path.join(directory, "codex-provider-mode.json");
+  writeFileSync(configPath, 'model_provider = "codex-router"\n', { mode: 0o600 });
+  try {
+    assert.equal(loginFreeConfigured(configPath, providerModePath), false);
+    writeFileSync(providerModePath, '{"version":1}\n', { mode: 0o600 });
+    assert.equal(loginFreeConfigured(configPath, providerModePath), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("routed models rewrite GPT identity text to the external model name", () => {

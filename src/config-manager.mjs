@@ -992,7 +992,15 @@ function clean(contents) {
   const withoutBlock = removeEmptyFeaturesTable(
     removeCreatedAgentsTableIfEmpty(removeMarkedBlock(contents)),
   );
-  const { rootLines, tableLines } = splitRoot(withoutBlock);
+  // A failed older conversion could leave an ownership slot after its signed
+  // provider block was removed. Slots are meaningful only while a valid signed
+  // state owns their matching table, and `clean()` is never called before that
+  // state has been restored, so discard any orphan here.
+  const withoutOrphanedSlots = withoutBlock
+    .split("\n")
+    .filter((line) => !line.startsWith(`${signedProviderSlotPrefix} `))
+    .join("\n");
+  const { rootLines, tableLines } = splitRoot(withoutOrphanedSlots);
   const filtered = rootLines.filter((line) => {
     if (/^\s*openai_base_url\s*=/.test(line)) {
       return !(knownManaged && isRecognizedRouterBaseUrl(assignmentValue(line)));
@@ -1318,7 +1326,15 @@ if (command === "reconcile") {
       );
     }
     const restored = restoreSignedProviderTable(current, signedState);
-    const enabled = enabledContents(restored);
+    // Rebuild the ordinary managed block from a neutral root selector.  A
+    // routed task leaves `model_provider = "codex-router"` behind by design;
+    // treating that signed selection as an unmanaged table made installer
+    // updates fail and then roll the active route back.
+    const neutralRoot =
+      (rootValue(splitRoot(restored).rootLines, "model_provider") || "openai") === routerProviderId
+        ? replaceRootValue(restored, "model_provider", "openai")
+        : restored;
+    const enabled = enabledContents(neutralRoot);
     const refreshed = managedSignedProviderContents(
       enabled,
       signedState.managedProvider,
