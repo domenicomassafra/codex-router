@@ -934,6 +934,7 @@ test("signed-model-set promotes a native root to the router provider after catal
     assert.match(configured, /^model = "opencode-go\/deepseek-v4-flash"/m);
     assert.match(configured, /^model_provider = "codex-router"$/m);
     assert.match(configured, /# BEGIN codex-router-signed-provider-managed/);
+    assert.equal(run("status", codexHome, stateDir).login_free, false);
   } finally {
     rmSync(codexHome, { recursive: true, force: true });
   }
