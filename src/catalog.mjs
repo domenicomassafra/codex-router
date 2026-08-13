@@ -14,6 +14,7 @@ import { protectPrivateFile } from "./file-security.mjs";
 import { isManagedCallerBaseUrl } from "./caller-auth.mjs";
 import {
   ANNOUNCED_MODELS_PATH,
+  CODEX_PROVIDER_MODE_PATH,
   CONFIG_PATH,
   MERGED_CATALOG_PATH,
   MODELS_CACHE_PATH,
@@ -360,13 +361,16 @@ function selectedModel() {
 // GPT slugs are unusable there even when a ChatGPT credential file exists.
 // Mode toggles pass the desired state via MODEL_ROUTER_LOGIN_FREE because they
 // rebuild the catalog before rewriting the Codex config.
-function loginFreeConfigured() {
+export function loginFreeConfigured(
+  configPath = CONFIG_PATH,
+  providerModePath = CODEX_PROVIDER_MODE_PATH,
+) {
   const override = process.env.MODEL_ROUTER_LOGIN_FREE;
   if (override === "1") return true;
   if (override === "0") return false;
-  if (!existsSync(CONFIG_PATH)) return false;
+  if (!existsSync(configPath) || !existsSync(providerModePath)) return false;
   try {
-    const document = scanTomlDocument(readFileSync(CONFIG_PATH, "utf8"));
+    const document = scanTomlDocument(readFileSync(configPath, "utf8"));
     return tomlStringValue(document, [], "model_provider") === "codex-router";
   } catch {
     return false;

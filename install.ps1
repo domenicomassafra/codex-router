@@ -224,6 +224,7 @@ $ConfigDisableCommand = if ($Target -eq "dsh") { "uninstall" } else { "disable" 
 $ConfigEnabled = $false
 $ServiceInstalled = $false
 $AdoptionPending = $false
+$SignedRouting = $false
 Push-Location $ScriptDirectory
 try {
   if ($Target -eq "codex") {
@@ -325,6 +326,8 @@ try {
 
   & node src/secret.mjs ensure
   if ($LASTEXITCODE -ne 0) { throw "Local router-key setup failed." }
+  $SignedRoutingStatus = (& node $ConfigManager status 2>$null | Select-Object -Last 1)
+  $SignedRouting = $LASTEXITCODE -eq 0 -and "$SignedRoutingStatus" -match '"signed_routing":true'
   if ($AdoptNativeCatalog) {
     & node src/native-catalog-source.mjs prepare-from-config | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Existing native model-catalog adoption failed." }
@@ -377,6 +380,12 @@ try {
   if ($AdoptNativeCatalog) { $ConfigArguments += "--adopt-native-catalog" }
   & node @ConfigArguments
   if ($LASTEXITCODE -ne 0) { throw "$Target configuration update failed." }
+  if ($SignedRouting) {
+    & node $ConfigManager signed-enable
+    if ($LASTEXITCODE -ne 0) { throw "$Target signed-routing restoration failed." }
+    & node $ConfigManager reconcile
+    if ($LASTEXITCODE -ne 0) { throw "$Target signed-routing reconciliation failed." }
+  }
   $AdoptionPending = $false
   $ServiceInstalled = $true
   & node src/service.mjs install

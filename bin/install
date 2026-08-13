@@ -170,6 +170,7 @@ config_enabled=false
 service_installed=false
 # Each target enables its own client configuration; everything above and below
 # that one step is the shared router plane.
+signed_routing=false
 if [ "$target" = dsh ]; then
   config_manager=src/dsh-config-manager.mjs
   config_enable_command=install
@@ -178,6 +179,9 @@ else
   config_manager=src/config-manager.mjs
   config_enable_command=enable
   config_disable_command=disable
+  if node "$config_manager" status | grep -q '"signed_routing":true'; then
+    signed_routing=true
+  fi
 fi
 rollback() {
   if [ "$service_installed" = true ]; then
@@ -226,6 +230,10 @@ if [ "$adopt_native_catalog" = true ]; then
   node "$config_manager" "$config_enable_command" --adopt-native-catalog
 else
   node "$config_manager" "$config_enable_command"
+fi
+if [ "$signed_routing" = true ]; then
+  node "$config_manager" signed-enable
+  node "$config_manager" reconcile
 fi
 service_installed=true
 node src/service.mjs install

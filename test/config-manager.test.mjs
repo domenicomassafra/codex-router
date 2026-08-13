@@ -1039,6 +1039,64 @@ model_provider = "openai"
   }
 });
 
+test("ordinary enable preserves a signed routed selection for reconciliation", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-enable-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-flash"
+model_provider = "openai"
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    path.join(stateDir, "merged-models.json"),
+    JSON.stringify({ models: [{ slug: "opencode-go/deepseek-v4-flash", visibility: "list" }] }),
+    { mode: 0o600 },
+  );
+  try {
+    run("signed-enable", codexHome, stateDir);
+    run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
+    const refreshed = run("enable", codexHome, stateDir);
+    assert.equal(refreshed.signed_routing, true);
+    const reconciled = run("reconcile", codexHome, stateDir);
+    assert.equal(reconciled.model_provider, "codex-router");
+    assert.equal(reconciled.model, "opencode-go/deepseek-v4-flash");
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("ordinary enable drops an orphaned signed slot before recreating signed routing", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-orphaned-slot-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-flash"
+model_provider = "openai"
+# codex-router-signed-provider-tree-slot stale-owner 0
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    path.join(stateDir, "merged-models.json"),
+    JSON.stringify({ models: [{ slug: "opencode-go/deepseek-v4-flash", visibility: "list" }] }),
+    { mode: 0o600 },
+  );
+  try {
+    run("enable", codexHome, stateDir);
+    const signed = run("signed-enable", codexHome, stateDir);
+    assert.equal(signed.signed_routing, true);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), /signed-provider-tree-slot/);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("signed routing adopts its own marked router provider after signed state is interrupted", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-router-selected-"));
   const stateDir = path.join(codexHome, "router-state");

@@ -28,6 +28,7 @@ else
 fi
 # Only the client-configuration step differs between targets; the provider
 # selection, the gateway route table, and the service are one shared plane.
+signed_routing=false
 if [ "$target" = dsh ]; then
   config_manager=src/dsh-config-manager.mjs
   config_enable_command=install
@@ -36,6 +37,9 @@ else
   config_manager=src/config-manager.mjs
   config_enable_command=enable
   config_disable_command=disable
+  if node "$config_manager" status | grep -q '"signed_routing":true'; then
+    signed_routing=true
+  fi
 fi
 node src/provider-selection.mjs ensure-configured >/dev/null
 node src/secret.mjs ensure
@@ -72,6 +76,10 @@ if [ "$adopt_native_catalog" = true ]; then
   node "$config_manager" "$config_enable_command" --adopt-native-catalog
 else
   node "$config_manager" "$config_enable_command"
+fi
+if [ "$signed_routing" = true ]; then
+  node "$config_manager" signed-enable
+  node "$config_manager" reconcile
 fi
 service_installed=true
 node src/service.mjs install
