@@ -206,6 +206,8 @@ def check_proxy_starts(venv: Path, timeout: float) -> bool:
             "NO_COLOR": "1",
             "PYTHONIOENCODING": "utf-8",
             "PYTHONUTF8": "1",
+            "NO_PROXY": "127.0.0.1,localhost",
+            "no_proxy": "127.0.0.1,localhost",
         }
         with log.open("wb") as sink:
             child = subprocess.Popen(
