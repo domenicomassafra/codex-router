@@ -1250,11 +1250,23 @@ if (command === "signed-model-set") {
   next = replaceRootValue(next, "model", requestedModel);
   next = replaceRootValue(next, "model_provider", provider);
   const previousSignedState = promotedState ? signedState : undefined;
-  if (promotedState) writeSignedProviderModeState(promotedState);
+  let configWritten = false;
+  let signedStateWritten = false;
   try {
     atomicWrite(`${next}\n`);
+    configWritten = true;
+    if (promotedState) {
+      writeSignedProviderModeState(promotedState);
+      signedStateWritten = true;
+    }
   } catch (error) {
-    if (previousSignedState) writeSignedProviderModeState(previousSignedState);
+    // Commit the TOML first and the signed sidecar second. If either write
+    // fails, restore both artifacts before returning control to Codex so a
+    // selected custom model never survives with stale ownership metadata.
+    if (signedStateWritten && previousSignedState) {
+      writeSignedProviderModeState(previousSignedState);
+    }
+    if (configWritten) atomicWrite(current);
     throw error;
   }
   process.stdout.write(`${JSON.stringify({ model: requestedModel, provider })}\n`);
@@ -1570,28 +1582,29 @@ const previousSignedProviderModeState = pendingSignedProviderModeState
   ? readSignedProviderModeState()
   : undefined;
 if (pendingProviderModeState) writeProviderModeState(pendingProviderModeState);
-if (pendingSignedProviderModeState) writeSignedProviderModeState(pendingSignedProviderModeState);
+let configWritten = false;
+let signedStateWritten = false;
 try {
   atomicWrite(next);
+  configWritten = true;
+  if (pendingSignedProviderModeState) {
+    writeSignedProviderModeState(pendingSignedProviderModeState);
+    signedStateWritten = true;
+  }
   if (activateNativeCatalogSourceAfterWrite) activateNativeCatalogSource();
 } catch (error) {
   if (pendingProviderModeState) clearProviderModeState();
-  if (pendingSignedProviderModeState) {
+  if (signedStateWritten) {
     if (previousSignedProviderModeState) {
       writeSignedProviderModeState(previousSignedProviderModeState);
     } else {
       clearSignedProviderModeState();
     }
   }
+  if (configWritten) atomicWrite(current);
   if (activateNativeCatalogSourceAfterWrite) {
-    try {
-      atomicWrite(current);
-    } catch (restoreError) {
-      throw new AggregateError(
-        [error, restoreError],
-        "Codex config update failed and its original contents could not be restored.",
-      );
-    }
+    // The config was already restored above if this activation failed.
+    clearNativeCatalogSource();
   }
   throw error;
 }
