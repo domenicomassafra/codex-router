@@ -9,7 +9,7 @@ import { routedCodexAgentStatus } from "./codex-agent-catalog.mjs";
 import { privateFileIsProtected } from "./file-security.mjs";
 import { grokCliPreflight } from "./grok-cli.mjs";
 import { detectLegacyInstallations } from "./legacy-migration.mjs";
-import { routedCatalogConfigured } from "./catalog.mjs";
+import { codexAppPublishedModels, routedCatalogConfigured } from "./catalog.mjs";
 import { MODEL_BY_SLUG, PROVIDERS } from "./model-registry.mjs";
 import { grokOAuthStatus } from "./grok-oauth-status.mjs";
 import { kimiOAuthHealth } from "./oauth-status.mjs";
@@ -349,7 +349,11 @@ const routedTransportActive = codexTarget
   : existsSync(DSH_CATALOG_PATH);
 try {
   selection = providerSelectionStatus();
-  requiredRoutedModels = selectedConfiguredListedModels();
+  // The Go provider exposes more gateway routes than the Codex App is meant
+  // to publish.  Validate the picker against the same allowlist used by the
+  // catalog builder, while the separate gateway check still validates every
+  // selected route.
+  requiredRoutedModels = codexAppPublishedModels(selectedConfiguredListedModels());
   catalogRoutedModels = routedTransportActive ? requiredRoutedModels : [];
   requiredModels = new Set(catalogRoutedModels.map((model) => model.slug));
   add(
