@@ -1229,6 +1229,8 @@ requires_openai_auth = true
 supports_standalone_web_search = true
 supports_websockets = false
 # END codex-router-signed-provider-managed
+
+# Comment owned by the following settings section.
 `,
     { mode: 0o600 },
   );
@@ -1242,7 +1244,7 @@ supports_websockets = false
     previousProviderSections: [],
   }), { mode: 0o600 });
   try {
-    const recovered = run("reconcile", codexHome, stateDir);
+    const recovered = run("enable", codexHome, stateDir);
     assert.equal(recovered.signed_routing, true);
     const fixed = readFileSync(configPath, "utf8");
     assert.match(fixed, /# BEGIN codex-router-signed-provider-managed/);
