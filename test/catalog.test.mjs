@@ -15,6 +15,7 @@ import {
   applyAllMultiAgent,
   buildMergedCatalog,
   buildLoginFreeCatalog,
+  codexAppPublishedModels,
   clampModelEfforts,
   codexEffortVocabulary,
   nativeCatalogIsReusable,
@@ -57,6 +58,27 @@ const grok = {
   compHash: "grok-oauth-grok-4-5-v1",
   multiAgentVersion: "v2",
 };
+
+test("Codex App publishes only the two selected OpenCode Go DeepSeek routes", () => {
+  const published = codexAppPublishedModels([
+    { slug: "opencode-go/deepseek-v4-flash" },
+    { slug: "opencode-go/deepseek-v4-pro" },
+    { slug: "opencode-go/grok-4.5" },
+    { slug: "opencode-go-messages/minimax-m3" },
+    { slug: "opencode-go-responses/gpt-5.6-luna" },
+    { slug: "deepseek/deepseek-v4-flash" },
+    { slug: "anthropic/claude-opus-5" },
+  ]);
+  assert.deepEqual(
+    published.map((model) => model.slug),
+    [
+      "opencode-go/deepseek-v4-flash",
+      "opencode-go/deepseek-v4-pro",
+      "deepseek/deepseek-v4-flash",
+      "anthropic/claude-opus-5",
+    ],
+  );
+});
 
 test("routed catalog is exposed only when the active provider reaches the router", () => {
   // An absent base URL is the first-install case: setup has not written the
