@@ -1139,12 +1139,35 @@ if (command === "signed-model-set") {
   if (!entry || entry.visibility === "hide") {
     throw new Error(`Model is not published by the current Codex catalog: ${requestedModel}`);
   }
-  let next = replaceRootValue(current, "model", requestedModel);
-  if (signedState.mode === "provider-table") {
-    next = replaceRootValue(next, "model_provider", signedState.managedProvider);
+  let next = current;
+  let provider = signedState.managedProvider;
+  let promotedState;
+  if (signedState.mode === "root-openai") {
+    // A custom catalog selection must be a router-provider selection, even
+    // when native Codex started from OpenAI. Promote the exact signed state
+    // atomically; a later native root reset is still adopted by reconcile.
+    const restored = restoreSignedProviderTable(current, signedState);
+    const enabled = enabledContents(restored);
+    const promoted = managedSignedProviderContents(
+      enabled,
+      routerProviderId,
+      configuredRouterBaseUrl(),
+    );
+    next = promoted.contents;
+    promotedState = promoted.state;
+    provider = routerProviderId;
   }
-  atomicWrite(`${next}\n`);
-  process.stdout.write(`${JSON.stringify({ model: requestedModel, provider: signedState.managedProvider })}\n`);
+  next = replaceRootValue(next, "model", requestedModel);
+  next = replaceRootValue(next, "model_provider", provider);
+  const previousSignedState = promotedState ? signedState : undefined;
+  if (promotedState) writeSignedProviderModeState(promotedState);
+  try {
+    atomicWrite(`${next}\n`);
+  } catch (error) {
+    if (previousSignedState) writeSignedProviderModeState(previousSignedState);
+    throw error;
+  }
+  process.stdout.write(`${JSON.stringify({ model: requestedModel, provider })}\n`);
   process.exit(0);
 }
 
