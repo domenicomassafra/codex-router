@@ -916,6 +916,25 @@ Authorization = "Bearer PROVIDER_HEADER_SECRET"
   }
 });
 
+test("signed-model-set changes only the root model after catalog publication", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-model-set-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(configPath, `model = "gpt-5.6-terra"\nmodel_provider = "openai"\n`, { mode: 0o600 });
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(stateDir, "merged-models.json"), JSON.stringify({ models: [
+    { slug: "opencode-go/deepseek-v4-flash", visibility: "list" },
+  ]}), { mode: 0o600 });
+  try {
+    run("signed-enable", codexHome, stateDir);
+    const result = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
+    assert.equal(result.model, "opencode-go/deepseek-v4-flash");
+    assert.match(readFileSync(configPath, "utf8"), /^model = "opencode-go\/deepseek-v4-flash"/m);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("signed routing snapshots a quoted provider id containing a closing bracket", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-quoted-id-"));
   const stateDir = path.join(codexHome, "router-state");
