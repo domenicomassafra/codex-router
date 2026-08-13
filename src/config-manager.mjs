@@ -1514,6 +1514,24 @@ if (command === "reconcile" && next === current) {
   process.stdout.write(`${JSON.stringify(snapshot(current))}\n`);
   process.exit(0);
 }
+// `enable` and `signed-enable` are invoked by every managed installer apply.
+// A byte-identical signed state must not be atomically renamed over the same
+// config: Codex watches this file and a needless inode change can race a new
+// task's bootstrap.  Do not use this fast path for disable operations, which
+// still have sidecar state to clear even when the TOML text happens to match.
+const noConfigMutationNeeded =
+  next === current &&
+  !pendingProviderModeState &&
+  !pendingSignedProviderModeState &&
+  !clearNativeCatalogSourceAfterWrite &&
+  !activateNativeCatalogSourceAfterWrite &&
+  command !== "disable" &&
+  command !== "login-free-disable" &&
+  command !== "signed-disable";
+if (noConfigMutationNeeded) {
+  process.stdout.write(`${JSON.stringify(snapshot(current))}\n`);
+  process.exit(0);
+}
 if (existsSync(CONFIG_PATH) && !existsSync(BACKUP_PATH)) {
   copyFileSync(CONFIG_PATH, BACKUP_PATH);
 }

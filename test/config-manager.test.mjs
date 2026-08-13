@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -1084,9 +1085,11 @@ test("ordinary enable is a no-op for a healthy signed install", () => {
     run("signed-enable", codexHome, stateDir);
     run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
     const before = readFileSync(configPath, "utf8");
+    const beforeInode = statSync(configPath).ino;
     const refreshed = run("enable", codexHome, stateDir);
     assert.equal(refreshed.signed_routing, true);
     assert.equal(readFileSync(configPath, "utf8"), before);
+    assert.equal(statSync(configPath).ino, beforeInode);
   } finally {
     rmSync(codexHome, { recursive: true, force: true });
   }
