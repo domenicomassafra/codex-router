@@ -986,7 +986,7 @@ wire_api = "responses"
   }
 });
 
-test("signed routing adopts a native root reset over its marker-owned router provider", () => {
+test("signed routing promotes a published custom selection left with an OpenAI root", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-router-reset-"));
   const stateDir = path.join(codexHome, "router-state");
   const configPath = path.join(codexHome, "config.toml");
@@ -1007,25 +1007,24 @@ model_provider = "openai"
     { mode: 0o600 },
   );
   try {
-    run("enable", codexHome, stateDir);
-    writeFileSync(path.join(stateDir, "signed-provider-mode.json"), JSON.stringify({
-      version: 3,
-      mode: "provider-table",
-      managedProvider: "codex-router",
-      managedBaseUrl: `http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1`,
-      ownershipId: "00000000000000000000000000000000",
-      previousProviderSections: [],
-    }), { mode: 0o600 });
+    run("signed-enable", codexHome, stateDir);
 
     const recovered = run("reconcile", codexHome, stateDir);
     assert.equal(recovered.signed_routing, true);
-    assert.equal(recovered.model_provider, "openai");
+    assert.equal(recovered.model_provider, "codex-router");
     const restored = readFileSync(configPath, "utf8");
     assert.match(restored, /# BEGIN codex-router-signed-provider-managed/);
     assert.match(restored, /name = "Codex Router \(with ChatGPT\)"/);
 
-    const flash = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
-    assert.equal(flash.provider, "codex-router");
+    // A subsequent native model choice remains native; reconciliation must not
+    // force every signed-in Codex task through the router.
+    const nativeReset = readFileSync(configPath, "utf8")
+      .replace(/^model = "opencode-go\/deepseek-v4-flash"$/m, 'model = "gpt-5.6-sol"')
+      .replace(/^model_provider = "codex-router"$/m, 'model_provider = "openai"');
+    writeFileSync(configPath, nativeReset, { mode: 0o600 });
+    const native = run("reconcile", codexHome, stateDir);
+    assert.equal(native.model_provider, "openai");
+
     const pro = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-pro"]);
     assert.equal(pro.provider, "codex-router");
 

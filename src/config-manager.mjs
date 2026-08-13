@@ -40,6 +40,7 @@ import {
   LEGACY_STATE_DIRS,
   LEGACY_PORTS,
   MERGED_CATALOG_PATH,
+  NATIVE_CATALOG_PATH,
   PORTS,
   SIGNED_PROVIDER_MODE_PATH,
   loopback,
@@ -684,6 +685,34 @@ function signedProviderStateIsOwned(contents, state) {
   );
 }
 
+// Codex may write a newly selected model before it restores the matching
+// provider selector.  A published routed slug with an otherwise intact signed
+// provider table is therefore a managed transition, not a native selection.
+// Read the generated catalog as the authority and exclude the captured native
+// catalog: a registry slug alone is not sufficient, because disabled or hidden
+// models must never reactivate routing.
+function selectedPublishedRoutedModel(contents) {
+  const { rootLines } = splitRoot(contents);
+  const slug = rootValue(rootLines, "model");
+  if (!slug || !existsSync(MERGED_CATALOG_PATH)) {
+    return undefined;
+  }
+  try {
+    const catalog = JSON.parse(readFileSync(MERGED_CATALOG_PATH, "utf8"));
+    const entry = Array.isArray(catalog?.models)
+      ? catalog.models.find((model) => model?.slug === slug)
+      : undefined;
+    if (!entry || entry.visibility === "hide") return undefined;
+    const native = existsSync(NATIVE_CATALOG_PATH)
+      ? JSON.parse(readFileSync(NATIVE_CATALOG_PATH, "utf8"))
+      : undefined;
+    const isNative = Array.isArray(native?.models) && native.models.some((model) => model?.slug === slug);
+    return isNative ? undefined : slug;
+  } catch {
+    return undefined;
+  }
+}
+
 function readProviderModeState() {
   if (!existsSync(CODEX_PROVIDER_MODE_PATH)) return undefined;
   try {
@@ -1219,7 +1248,25 @@ if (command === "reconcile") {
   const signedState = readSignedProviderModeState();
   if (signedState) {
     if (signedProviderStateIsOwned(current, signedState)) {
-      next = current;
+      const selectedRoutedModel = selectedPublishedRoutedModel(current);
+      const currentProvider = rootValue(splitRoot(current).rootLines, "model_provider") || "openai";
+      // A native model with an OpenAI selector is deliberately left alone.
+      // Only a published external model may promote the signed transport.
+      if (!selectedRoutedModel || currentProvider !== "openai") {
+        next = current;
+      } else if (signedState.mode === "root-openai") {
+        const restored = restoreSignedProviderTable(current, signedState);
+        const enabled = enabledContents(restored);
+        const promoted = managedSignedProviderContents(
+          enabled,
+          routerProviderId,
+          configuredRouterBaseUrl(),
+        );
+        next = replaceRootValue(promoted.contents, "model_provider", routerProviderId);
+        pendingSignedProviderModeState = promoted.state;
+      } else {
+        next = replaceRootValue(current, "model_provider", signedState.managedProvider);
+      }
     } else {
       const recoverable = recoverableSignedProviderSource(current, signedState);
       if (!recoverable) {
