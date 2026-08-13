@@ -981,6 +981,60 @@ wire_api = "responses"
   }
 });
 
+test("signed routing adopts a native root reset over its marker-owned router provider", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-router-reset-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-flash"
+model_provider = "openai"
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    path.join(stateDir, "merged-models.json"),
+    JSON.stringify({ models: [
+      { slug: "opencode-go/deepseek-v4-flash", visibility: "list" },
+      { slug: "opencode-go/deepseek-v4-pro", visibility: "list" },
+    ] }),
+    { mode: 0o600 },
+  );
+  try {
+    run("enable", codexHome, stateDir);
+    writeFileSync(path.join(stateDir, "signed-provider-mode.json"), JSON.stringify({
+      version: 3,
+      mode: "provider-table",
+      managedProvider: "codex-router",
+      managedBaseUrl: `http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1`,
+      ownershipId: "00000000000000000000000000000000",
+      previousProviderSections: [],
+    }), { mode: 0o600 });
+
+    const recovered = run("reconcile", codexHome, stateDir);
+    assert.equal(recovered.signed_routing, true);
+    assert.equal(recovered.model_provider, "openai");
+    const restored = readFileSync(configPath, "utf8");
+    assert.match(restored, /# BEGIN codex-router-signed-provider-managed/);
+    assert.match(restored, /name = "Codex Router \(with ChatGPT\)"/);
+
+    const flash = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]);
+    assert.equal(flash.provider, "codex-router");
+    const pro = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-pro"]);
+    assert.equal(pro.provider, "codex-router");
+
+    const drifted = readFileSync(configPath, "utf8").replace(
+      /^base_url = ".*"$/m,
+      'base_url = "https://changed.invalid/v1"',
+    );
+    writeFileSync(configPath, drifted, { mode: 0o600 });
+    assert.throws(() => run("reconcile", codexHome, stateDir), /lost ownership/i);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("signed routing snapshots a quoted provider id containing a closing bracket", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-quoted-id-"));
   const stateDir = path.join(codexHome, "router-state");
