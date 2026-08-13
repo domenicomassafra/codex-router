@@ -566,6 +566,20 @@ async function setLoginFreeModel(slug) {
   process.stdout.write(result.stdout);
 }
 
+async function setSignedModel(slug) {
+  const value = String(slug || "").trim();
+  if (!value) throw new Error("Usage: control model-set <model-slug>");
+  const config = codexConfigSnapshot();
+  if (!config?.signed_routing) throw new Error("Switching the model requires signed router mode.");
+  const result = spawnSync(
+    process.execPath,
+    [path.join(REPO_ROOT, "src", "config-manager.mjs"), "signed-model-set", value],
+    { cwd: REPO_ROOT, env: { ...process.env, MODEL_ROUTER_TARGET: "codex" }, encoding: "utf8" },
+  );
+  if (result.status !== 0) throw new Error((result.stderr || "The Codex model could not be changed.").trim());
+  process.stdout.write(`${JSON.stringify({ ...codexConfigSnapshot(), model: value })}\n`);
+}
+
 async function updateAndVerifyCodex() {
   const { runCodexMaintenance } = await import("./codex-maintenance.mjs");
   process.stdout.write(`${JSON.stringify(runCodexMaintenance())}\n`);
@@ -1245,7 +1259,10 @@ if (args.includes("--probe")) {
 } else if (args[0] === "signed-routing") {
   await setSignedRouting(args[1]);
 } else if (args[0] === "model-set") {
-  await setLoginFreeModel(args[1]);
+  const current = codexConfigSnapshot();
+  if (current?.login_free) await setLoginFreeModel(args[1]);
+  else if (current?.signed_routing) await setSignedModel(args[1]);
+  else throw new Error("control model-set requires signed router mode or login-free mode");
 } else if (args[0] === "subagents") {
   await handleSubagents(args[1], args[2], args[3]);
 } else if (args[0] === "local-models") {
