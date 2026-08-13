@@ -881,20 +881,22 @@ function recoverableSignedProviderSource(contents, state) {
   }
   const { rootLines } = splitRoot(contents);
   const activeProvider = rootValue(rootLines, "model_provider") || "openai";
-  if (activeProvider !== "openai") return undefined;
-
+  if (
+    activeProvider === routerProviderId &&
+    orphanedSignedProviderFooterIsOwned(contents, routerProviderId, configuredRouterBaseUrl())
+  ) {
+    return contents;
+  }
   // The app may reset only the root selector while leaving the normal,
   // marker-owned router table intact. That is a native-idle transition, not
   // user ownership drift: adopt precisely this table so the next custom
   // selection can atomically restore its provider. Never adopt an unmarked
   // or changed provider table.
-  if (
-    state.mode === "provider-table" &&
-    state.managedProvider === routerProviderId &&
-    markedManagedRouterProviderIsOwned(contents)
-  ) {
+  if (recoverableRouterTablePromotion(contents, state)) {
     return contents;
   }
+
+  if (activeProvider !== "openai") return undefined;
 
   if (
     state.mode !== "root-openai" ||
@@ -906,6 +908,43 @@ function recoverableSignedProviderSource(contents, state) {
   const legacy = legacyManagedRouterProvider(contents);
   if (legacy) return removeLegacyManagedRouterProvider(contents, legacy);
   return markedManagedRouterProviderIsOwned(contents) ? contents : undefined;
+}
+
+function recoverableRouterTablePromotion(contents, state) {
+  const { rootLines } = splitRoot(contents);
+  const activeProvider = rootValue(rootLines, "model_provider") || "openai";
+  return (
+    state?.version === 3 &&
+    ((state.mode === "provider-table" &&
+      state.managedProvider === routerProviderId &&
+      (activeProvider === "openai" || activeProvider === routerProviderId)) ||
+      (state.mode === "root-openai" &&
+        state.managedProvider === "openai" &&
+        state.previousProviderSections.length === 0 &&
+        activeProvider === routerProviderId)) &&
+    markedManagedRouterProviderIsOwned(contents)
+  );
+}
+
+function orphanedSignedProviderFooterIsOwned(contents, providerId, baseUrl) {
+  const lines = contents.split("\n");
+  const starts = lines.filter((line) => line.trim() === signedProviderStartMarker);
+  const ends = lines.filter((line) => line.trim() === signedProviderEndMarker);
+  if (starts.length !== 0 || ends.length !== 1) return false;
+  const ranges = providerTableRanges(contents, providerId);
+  if (ranges.length !== 1) return false;
+  const actual = trimBlankEdges(ranges[0].lines.slice(ranges[0].start, ranges[0].end)).join("\n");
+  const expected = managedSignedProviderBlock(providerId, baseUrl).split("\n").slice(1).join("\n");
+  return actual === expected;
+}
+
+function promotesMarkedRouterTable(contents, state) {
+  const { rootLines } = splitRoot(contents);
+  return (
+    (rootValue(rootLines, "model_provider") || "openai") === routerProviderId &&
+    (recoverableRouterTablePromotion(contents, state) ||
+      orphanedSignedProviderFooterIsOwned(contents, routerProviderId, configuredRouterBaseUrl()))
+  );
 }
 
 function removeLegacyManagedRouterProvider(contents, provider) {
@@ -1192,10 +1231,16 @@ if (command === "reconcile") {
           }; refusing to reconcile it.`,
         );
       }
-      const enabled = enabledContents(recoverable);
+      // A regular marked router table is the older managed representation.
+      // It is already enabled, and passing it through enabledContents would
+      // reject the very table we just proved is ours. Sign it directly.
+      const promoteRouterTable = promotesMarkedRouterTable(recoverable, signedState);
+      const source = promoteRouterTable
+        ? recoverable
+        : enabledContents(recoverable);
       const refreshed = managedSignedProviderContents(
-        enabled,
-        signedState.managedProvider,
+        source,
+        promoteRouterTable ? routerProviderId : signedState.managedProvider,
         configuredRouterBaseUrl(),
       );
       next = refreshed.contents;

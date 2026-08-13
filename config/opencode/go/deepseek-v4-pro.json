@@ -4,7 +4,7 @@
     {
       "slug": "opencode-go/deepseek-v4-pro",
       "gatewayModel": "opencode-go-deepseek-v4-pro",
-      "upstreamModel": "deepseek-v4-pro",
+      "upstreamModel": "opencode-go/deepseek-v4-pro",
       "provider": "opencode-go",
       "listed": true,
       "displayName": "DeepSeek V4 Pro (opencode Go)",

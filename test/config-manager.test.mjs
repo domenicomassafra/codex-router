@@ -1040,6 +1040,138 @@ model_provider = "openai"
   }
 });
 
+test("signed routing adopts its own marked router provider after signed state is interrupted", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-router-selected-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-flash"
+model_provider = "codex-router"
+openai_base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+model_catalog_json = "${path.join(stateDir, "merged-models.json")}"
+
+# BEGIN codex-router-provider-managed
+[model_providers.codex-router]
+name = "Codex Router (external models)"
+base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+wire_api = "responses"
+supports_standalone_web_search = true
+# END codex-router-provider-managed
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(stateDir, "merged-models.json"), JSON.stringify({ models: [
+    { slug: "opencode-go/deepseek-v4-flash", visibility: "list" },
+  ] }), { mode: 0o600 });
+  writeFileSync(path.join(stateDir, "signed-provider-mode.json"), JSON.stringify({
+    version: 3,
+    mode: "provider-table",
+    managedProvider: "codex-router",
+    managedBaseUrl: `http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1`,
+    ownershipId: "00000000000000000000000000000000",
+    previousProviderSections: [],
+  }), { mode: 0o600 });
+  try {
+    const recovered = run("reconcile", codexHome, stateDir);
+    assert.equal(recovered.model_provider, "codex-router");
+    assert.equal(recovered.signed_routing, true);
+    assert.match(readFileSync(configPath, "utf8"), /# BEGIN codex-router-signed-provider-managed/);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("signed routing promotes a root-openai state when its marked router provider is selected", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-root-promote-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-pro"
+model_provider = "codex-router"
+openai_base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+model_catalog_json = "${path.join(stateDir, "merged-models.json")}"
+
+# BEGIN codex-router-provider-managed
+[model_providers.codex-router]
+name = "Codex Router (external models)"
+base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+wire_api = "responses"
+supports_standalone_web_search = true
+# END codex-router-provider-managed
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(stateDir, "merged-models.json"), JSON.stringify({ models: [
+    { slug: "opencode-go/deepseek-v4-pro", visibility: "list" },
+  ] }), { mode: 0o600 });
+  writeFileSync(path.join(stateDir, "signed-provider-mode.json"), JSON.stringify({
+    version: 3,
+    mode: "root-openai",
+    managedProvider: "openai",
+    managedBaseUrl: `http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1`,
+    ownershipId: "00000000000000000000000000000000",
+    previousProviderSections: [],
+  }), { mode: 0o600 });
+  try {
+    const recovered = run("reconcile", codexHome, stateDir);
+    assert.equal(recovered.model_provider, "codex-router");
+    assert.equal(recovered.signed_routing, true);
+    const routed = run("signed-model-set", codexHome, stateDir, ["opencode-go/deepseek-v4-pro"]);
+    assert.equal(routed.provider, "codex-router");
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("signed routing repairs an orphaned signed-provider footer only when its table is exact", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-footer-repair-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  writeFileSync(
+    configPath,
+    `model = "opencode-go/deepseek-v4-flash"
+model_provider = "codex-router"
+openai_base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+model_catalog_json = "${path.join(stateDir, "merged-models.json")}"
+
+[model_providers.codex-router]
+name = "Codex Router (with ChatGPT)"
+base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+wire_api = "responses"
+requires_openai_auth = true
+supports_standalone_web_search = true
+supports_websockets = false
+# END codex-router-signed-provider-managed
+`,
+    { mode: 0o600 },
+  );
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(stateDir, "signed-provider-mode.json"), JSON.stringify({
+    version: 3,
+    mode: "root-openai",
+    managedProvider: "openai",
+    managedBaseUrl: `http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1`,
+    ownershipId: "00000000000000000000000000000000",
+    previousProviderSections: [],
+  }), { mode: 0o600 });
+  try {
+    const recovered = run("reconcile", codexHome, stateDir);
+    assert.equal(recovered.signed_routing, true);
+    const fixed = readFileSync(configPath, "utf8");
+    assert.match(fixed, /# BEGIN codex-router-signed-provider-managed/);
+    assert.equal((fixed.match(/# END codex-router-signed-provider-managed/g) || []).length, 1);
+
+    writeFileSync(configPath, fixed.replace('name = "Codex Router (with ChatGPT)"', 'name = "Changed"'), { mode: 0o600 });
+    assert.throws(() => run("reconcile", codexHome, stateDir), /lost ownership/i);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("signed routing snapshots a quoted provider id containing a closing bracket", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-quoted-id-"));
   const stateDir = path.join(codexHome, "router-state");

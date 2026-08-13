@@ -4,7 +4,7 @@
     {
       "slug": "opencode-go/deepseek-v4-flash",
       "gatewayModel": "opencode-go-deepseek-v4-flash",
-      "upstreamModel": "deepseek-v4-flash",
+      "upstreamModel": "opencode-go/deepseek-v4-flash",
       "provider": "opencode-go",
       "listed": true,
       "displayName": "DeepSeek V4 Flash (opencode Go)",
