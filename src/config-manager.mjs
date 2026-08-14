@@ -875,7 +875,18 @@ function legacyManagedRouterProvider(contents) {
       (fields.size === 5 && fields.get("supports_standalone_web_search") === "true")) &&
     fields.get("name") === "Codex Router (extra providers)" &&
     fields.get("requires_openai_auth") === "true";
-  return commonFieldsMatch && (currentShape || prototypeShape)
+  // A short-lived signed-routing release used this exact unmarked provider
+  // shape.  Turning signed routing off could remove its opening marker and
+  // state file while leaving the table and closing marker behind.  Recognize
+  // only that byte-for-byte field set so login-free repair can adopt it;
+  // changed URLs, names, or extra fields remain user-owned and fail closed.
+  const orphanedSignedShape =
+    fields.size === 6 &&
+    fields.get("name") === "Codex Router (with ChatGPT)" &&
+    fields.get("requires_openai_auth") === "true" &&
+    fields.get("supports_standalone_web_search") === "true" &&
+    fields.get("supports_websockets") === "false";
+  return commonFieldsMatch && (currentShape || prototypeShape || orphanedSignedShape)
     ? { lines, start, end }
     : undefined;
 }
@@ -1082,7 +1093,9 @@ function enabledContents(contents) {
     : contents;
   if (
     hasUnmanagedRouterProvider(contentsWithoutLegacyProvider) ||
-    (currentProvider === routerProviderId && !existsSync(CODEX_PROVIDER_MODE_PATH))
+    (currentProvider === routerProviderId &&
+      !existsSync(CODEX_PROVIDER_MODE_PATH) &&
+      !legacyProvider)
   ) {
     throw new Error(
       `Refusing to replace user-owned model provider ${routerProviderId}.`,
