@@ -821,6 +821,16 @@ function hasUnmanagedRouterProvider(contents) {
   ).test(withoutManagedBlock);
 }
 
+function nativeTransportAlreadyRestored(contents) {
+  const { rootLines } = splitRoot(contents);
+  const provider = rootValue(rootLines, "model_provider");
+  return (
+    (!provider || provider === "openai") &&
+    !rootValue(rootLines, "openai_base_url") &&
+    !hasUnmanagedRouterProvider(contents)
+  );
+}
+
 function legacyManagedRouterProvider(contents) {
   const hasManagedRoot = contents.includes(startMarker) && contents.includes(endMarker);
   const lines = contents.split("\n");
@@ -1510,20 +1520,23 @@ if (command === "reconcile") {
     }
   } else if (state) {
     if (currentProvider !== routerProviderId) {
-      throw new Error(
-        `Refusing to replace user-owned model_provider: ${currentProvider || "unset"}.`,
-      );
+      if (!nativeTransportAlreadyRestored(current)) {
+        throw new Error(
+          `Refusing to replace user-owned model_provider: ${currentProvider || "unset"}.`,
+        );
+      }
+    } else {
+      restored = `${replaceRootValue(
+        current,
+        "model_provider",
+        state.previousPresent ? state.previousModelProvider : undefined,
+      )}\n`;
+      restored = `${replaceRootValue(
+        restored,
+        "model",
+        state.previousModelPresent ? state.previousModel : undefined,
+      )}\n`;
     }
-    restored = `${replaceRootValue(
-      current,
-      "model_provider",
-      state.previousPresent ? state.previousModelProvider : undefined,
-    )}\n`;
-    restored = `${replaceRootValue(
-      restored,
-      "model",
-      state.previousModelPresent ? state.previousModel : undefined,
-    )}\n`;
   } else if (command === "login-free-disable" && currentProvider === routerProviderId) {
     throw new Error("Codex login-free mode is not managed by this router.");
   }

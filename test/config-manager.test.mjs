@@ -451,6 +451,35 @@ approval_policy = "never"
   }
 });
 
+test("login-free disable clears stale state after Codex already restored native transport", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-native-recovered-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  const providerModePath = path.join(stateDir, "codex-provider-mode.json");
+  writeFileSync(configPath, `model = "gpt-5.6-sol"\n`, { mode: 0o600 });
+
+  try {
+    run("enable", codexHome, stateDir);
+    run("login-free-enable", codexHome, stateDir, ["deepseek/deepseek-v4-pro"]);
+    assert.equal(existsSync(providerModePath), true);
+
+    writeFileSync(
+      configPath,
+      `model = "gpt-5.6-sol"\nmodel_catalog_json = ${JSON.stringify(path.join(stateDir, "merged-models.json"))}\n`,
+      { mode: 0o600 },
+    );
+
+    const restored = run("login-free-disable", codexHome, stateDir);
+    assert.equal(restored.mode, "native");
+    assert.equal(restored.model_provider, "openai");
+    assert.equal(restored.model, "gpt-5.6-sol");
+    assert.equal(existsSync(providerModePath), false);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), /model_providers\.codex-router/);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("disabling the router from login-free mode restores an originally unset provider", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-login-free-unset-"));
   const stateDir = path.join(codexHome, "router-state");
