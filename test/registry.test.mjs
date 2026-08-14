@@ -16,6 +16,7 @@ process.env.MODEL_ROUTER_USER_MODELS = path.join(
 const { renderLiteLlmConfig } = await import("../src/litellm-config.mjs");
 const {
   API_MODELS,
+  anonymousModelAllowed,
   LISTED_MODELS,
   MODEL_BY_SLUG,
   MODELS,
@@ -44,21 +45,35 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "clinepass/qwen3.8-max",
       "commandcode/deepseek-v4-flash",
       "commandcode/deepseek-v4-pro",
+      "commandcode/fugu-ultra",
       "commandcode/gemini-3.5-flash",
+      "commandcode/gemini-3.7-flash",
+      "commandcode/glm-5.2-fast",
       "commandcode/glm-5.2",
       "commandcode/gpt-5.5",
       "commandcode/gpt-5.6-luna",
+      "commandcode/gpt-5.6-sol",
+      "commandcode/gpt-5.6-terra",
       "commandcode/grok-4.5",
+      "commandcode/grok-4.6",
       "commandcode/hy3-paid",
+      "commandcode/inkling-small",
+      "commandcode/inkling",
+      "commandcode/kimi-k2.7-code-highspeed",
       "commandcode/kimi-k2.7-code",
       "commandcode/kimi-k3",
+      "commandcode/laguna-s-2.1",
       "commandcode-messages/claude-fable-5",
       "commandcode-messages/claude-haiku-4.5",
       "commandcode-messages/claude-opus-4.8",
+      "commandcode-messages/claude-opus-5",
       "commandcode-messages/claude-sonnet-5",
       "commandcode/mimo-v2.5-pro",
       "commandcode/minimax-m2.7",
       "commandcode/minimax-m3",
+      "commandcode/muse-spark-1.2",
+      "commandcode/nemotron-3-ultra",
+      "commandcode/qwen3.7-flash",
       "commandcode/qwen3.7-max",
       "commandcode/qwen3.7-plus",
       "commandcode/qwen3.8-max",
@@ -69,6 +84,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "grok-oauth/grok-4.5",
       "grok-oauth/grok-4.6",
       "kimi-api/kimi-k3",
+      "kimi-api-cn/kimi-k3",
       "kimi-oauth/k3",
       "kimi-oauth/kimi-for-coding-highspeed",
       "kimi-oauth/kimi-for-coding",
@@ -85,6 +101,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go/deepseek-v4-pro",
       "opencode-go/glm-5.1",
       "opencode-go/glm-5.2",
+      "opencode-go/glm-5.3",
       "opencode-go/grok-4.5",
       "opencode-go/hy3",
       "opencode-go/kimi-k2.6",
@@ -107,8 +124,13 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "qwen-plan/qwen3.7-plus",
       "qwen-plan/qwen3.8-max-preview",
       "qwen-plan/qwen3.8-max",
+      "zai-api/glm-4.7",
+      "zai-api/glm-5.2",
+      "zai-api/glm-5.3",
       "zai-coding/glm-5-turbo",
       "zai-coding/glm-5.2",
+      "zai-coding/glm-5.3-1m",
+      "zai-coding/glm-5.3",
     ],
   );
   assert.equal(PROVIDERS.get("deepseek").baseUrl, "https://api.deepseek.com");
@@ -120,6 +142,33 @@ test("provider registry exposes configured API and OAuth model families", () => 
     PROVIDERS.get("zai-coding").baseUrl,
     "https://api.z.ai/api/coding/paas/v4",
   );
+  // The pay-per-token platform is its own endpoint, its own credential, and its
+  // own key file: a Coding Plan key is not billable on it.
+  assert.equal(PROVIDERS.get("zai-api").baseUrl, "https://api.z.ai/api/paas/v4");
+  assert.equal(PROVIDERS.get("zai-api").variantOf, undefined);
+  assert.equal(PROVIDERS.get("zai-api").credential.file, "zai-api-key.secret");
+  assert.notEqual(
+    PROVIDERS.get("zai-api").credential.file,
+    PROVIDERS.get("zai-coding").credential.file,
+  );
+  // Every channel the credential can arrive through has to be distinct, not
+  // just the file: the same check the China Kimi route gets below. A shared
+  // keychain service or base-URL variable would let one product's key satisfy
+  // the other's lookup, which is the whole failure this split exists to stop.
+  for (const field of ["environment", "keychainServices"]) {
+    const platform = PROVIDERS.get("zai-api").credential[field] || [];
+    const plan = new Set(PROVIDERS.get("zai-coding").credential[field] || []);
+    assert.ok(platform.length > 0, `zai-api declares no ${field}`);
+    assert.ok(
+      platform.every((entry) => !plan.has(entry)),
+      `zai-api ${field} must not overlap the Coding Plan`,
+    );
+  }
+  assert.notEqual(
+    PROVIDERS.get("zai-api").baseUrlEnv,
+    PROVIDERS.get("zai-coding").baseUrlEnv,
+  );
+  assert.ok(PROVIDERS.get("zai-api").planNote);
   assert.equal(PROVIDERS.get("ollama-cloud").baseUrl, "https://ollama.com/v1");
   assert.equal(PROVIDERS.get("minimax-token-plan").baseUrl, "https://api.minimax.io/v1");
   // Go is its own endpoint, not the pay-per-use Zen one.
@@ -151,9 +200,36 @@ test("provider registry exposes configured API and OAuth model families", () => 
     "COMMANDCODE_API_KEY",
   ]);
   assert.equal(PROVIDERS.get("grok-api").baseUrl, "https://api.x.ai/v1");
-  // Kimi API Platform uses the global endpoint by default; China/custom
-  // deployments can still override it with KIMI_API_BASE_URL.
+  // kimi-api is the global platform. The mainland one is its own provider
+  // below, not a KIMI_API_BASE_URL override of this one -- the override still
+  // works for a genuinely custom deployment, but pointing it at moonshot.cn
+  // would authenticate the wrong account's key against the wrong host.
   assert.equal(PROVIDERS.get("kimi-api").baseUrl, "https://api.moonshot.ai/v1");
+  // Moonshot runs two platforms with separate accounts, separate billing, and
+  // keys each host rejects from the other. They must never collapse into one
+  // provider, and must never share a credential.
+  assert.equal(PROVIDERS.get("kimi-api-cn").baseUrl, "https://api.moonshot.cn/v1");
+  assert.notEqual(
+    PROVIDERS.get("kimi-api-cn").credential.file,
+    PROVIDERS.get("kimi-api").credential.file,
+  );
+  assert.notEqual(
+    PROVIDERS.get("kimi-api-cn").baseUrlEnv,
+    PROVIDERS.get("kimi-api").baseUrlEnv,
+  );
+  for (const field of ["environment", "keychainServices"]) {
+    const global = new Set(PROVIDERS.get("kimi-api").credential[field]);
+    const china = PROVIDERS.get("kimi-api-cn").credential[field];
+    assert.ok(
+      china.every((entry) => !global.has(entry)),
+      `kimi-api-cn ${field} must not overlap the global platform`,
+    );
+  }
+  // The China route has never been through the native collaboration probe
+  // AGENTS.md requires, so it stays conservative v1 while the global one is v2.
+  assert.equal(MODEL_BY_SLUG.get("kimi-api-cn/kimi-k3").multiAgentVersion, undefined);
+  assert.equal(MODEL_BY_SLUG.get("kimi-api/kimi-k3").multiAgentVersion, "v2");
+  assert.equal(MODEL_BY_SLUG.get("kimi-api-cn/kimi-k3").upstreamModel, "kimi-k3");
   assert.equal(PROVIDERS.get("github-copilot").authProfile, "github-copilot");
   assert.equal(PROVIDERS.get("github-copilot").protocol, "openai-responses");
   assert.deepEqual(PROVIDERS.get("github-copilot").credential.environment, [
@@ -168,6 +244,18 @@ test("provider registry exposes configured API and OAuth model families", () => 
   assert.equal(chutes.credential.file, "chutes-api-key.secret");
   assert.deepEqual(chutes.credential.keychainServices, ["codex-router-chutes"]);
   assert.equal(LISTED_MODELS.some(({ provider }) => provider === "chutes"), false);
+  const opencodeFree = PROVIDERS.get("opencode-free");
+  assert.equal(opencodeFree.authMode, "anonymous");
+  assert.equal(opencodeFree.baseUrl, "https://opencode.ai/zen/v1");
+  assert.equal(opencodeFree.credential, undefined);
+  assert.equal(anonymousModelAllowed(opencodeFree, "big-pickle"), true);
+  assert.equal(anonymousModelAllowed(opencodeFree, "mimo-v2.5-free"), true);
+  assert.equal(anonymousModelAllowed(opencodeFree, "glm-5.1"), false);
+  const kiloFree = PROVIDERS.get("kilo-free");
+  assert.equal(kiloFree.authMode, "anonymous");
+  assert.equal(kiloFree.baseUrl, "https://api.kilo.ai/api/gateway");
+  assert.equal(anonymousModelAllowed(kiloFree, "z-ai/glm-5:free"), true);
+  assert.equal(anonymousModelAllowed(kiloFree, "z-ai/glm-5"), false);
   const clinepass = PROVIDERS.get("clinepass");
   assert.equal(clinepass.baseUrl, "https://api.cline.bot/api/v1");
   assert.equal(clinepass.baseUrlEnv, "CLINE_API_BASE_URL");
@@ -235,12 +323,19 @@ test("provider registry exposes configured API and OAuth model families", () => 
     "DASHSCOPE_API_KEY",
   ]);
   assert.equal(PROVIDERS.get("anthropic-api").protocol, "anthropic");
+  // Deliberate v1 holdouts. Both are unproven through the native collaboration
+  // probe AGENTS.md requires, and a v2 claim is not inherited from a sibling
+  // route: kimi-api-cn is the same model on a different platform, which is
+  // exactly the kind of "surely it also works" assumption the probe exists for.
+  const unprovenForV2 = new Set(["grok-oauth/grok-4.6", "kimi-api-cn/kimi-k3"]);
   for (const model of LISTED_MODELS.filter(({ provider, slug }) =>
-    /^(?:kimi|grok)-/.test(provider) && slug !== "grok-oauth/grok-4.6",
+    /^(?:kimi|grok)-/.test(provider) && !unprovenForV2.has(slug),
   )) {
     assert.equal(model.multiAgentVersion, "v2", model.slug);
   }
-  assert.equal(MODEL_BY_SLUG.get("grok-oauth/grok-4.6").multiAgentVersion, undefined);
+  for (const slug of unprovenForV2) {
+    assert.equal(MODEL_BY_SLUG.get(slug).multiAgentVersion, undefined, slug);
+  }
   assert.equal(MODEL_BY_SLUG.get("deepseek/deepseek-v4-pro").multiAgentVersion, undefined);
   for (const slug of [
     "kimi-oauth/kimi-for-coding-highspeed",
@@ -289,6 +384,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
     "grok-api/grok-4.5",
     "grok-oauth/grok-4.5",
     "grok-oauth/grok-4.6",
+    "kimi-api-cn/kimi-k3",
     "kimi-api/kimi-k3",
     "kimi-oauth/k3",
     "kimi-oauth/kimi-for-coding",
@@ -320,6 +416,13 @@ test("provider registry exposes configured API and OAuth model families", () => 
   assert.equal(
     MODEL_BY_SLUG.get("commandcode-messages/claude-opus-4.8").contextWindow,
     1_000_000,
+  );
+  // Command Code serves Haiku 4.5 only under its dated id. The undated alias
+  // every other Anthropic surface accepts is absent from this catalog, so the
+  // route 404s the moment the registry shortens it.
+  assert.equal(
+    MODEL_BY_SLUG.get("commandcode-messages/claude-haiku-4.5").upstreamModel,
+    "claude-haiku-4-5-20251001",
   );
   // Documented output_config.effort ladder for Opus 4.8 (default high).
   assert.deepEqual(
@@ -424,6 +527,15 @@ test("Ollama Cloud models advertise only levels the forwarder maps to Ollama", (
       );
     }
   }
+});
+
+// Every model_name has exactly one deployment, so a cooldown can only hide a
+// failure -- it turns a 401 into LiteLLM's own 429. See #179.
+test("the gateway config disables deployment cooldowns", () => {
+  const rendered = renderLiteLlmConfig();
+  assert.match(rendered, /router_settings:\n\s+disable_cooldowns: true/);
+  const names = [...rendered.matchAll(/^  - model_name: (.+)$/gm)].map((m) => m[1]);
+  assert.equal(new Set(names).size, names.length, "one deployment per model_name");
 });
 
 test("LiteLLM configuration is generated from every registry route", () => {
@@ -615,6 +727,48 @@ test("a keyless provider must be loopback and must not carry a credential", asyn
     });
     assert.equal(keyed.status, 1);
     assert.match(keyed.stderr, /must not declare a credential/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("anonymous providers are fixed official endpoints without credentials", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const nodePath = (await import("node:path")).default;
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(nodePath.join(tmpdir(), "registry-anonymous-test-"));
+  const load = (mutate) => {
+    const registry = readRegistryDocument("config");
+    mutate(registry);
+    const registryPath = nodePath.join(dir, "providers.json");
+    writeFileSync(registryPath, JSON.stringify(registry));
+    return spawnSync(
+      process.execPath,
+      ["-e", "import('./src/model-registry.mjs').catch((e)=>{console.error(e.message);process.exit(1);})"],
+      { encoding: "utf8", env: { ...process.env, MODEL_ROUTER_REGISTRY: registryPath } },
+    );
+  };
+  try {
+    const redirected = load((registry) => {
+      registry.providers = registry.providers.map((provider) =>
+        provider.id === "opencode-free"
+          ? { ...provider, baseUrl: "https://example.com/v1" }
+          : provider,
+      );
+    });
+    assert.equal(redirected.status, 1);
+    assert.match(redirected.stderr, /anonymous provider opencode-free must use its fixed official endpoint/);
+
+    const keyed = load((registry) => {
+      registry.providers = registry.providers.map((provider) =>
+        provider.id === "kilo-free"
+          ? { ...provider, credential: { file: "unexpected.secret", environment: [] } }
+          : provider,
+      );
+    });
+    assert.equal(keyed.status, 1);
+    assert.match(keyed.stderr, /anonymous provider kilo-free must not declare keyless or credential metadata/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

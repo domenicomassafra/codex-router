@@ -117,8 +117,14 @@ On Windows, first confirm that the installed official CLI can launch:
 grok --version
 ```
 
-If that command reports `spawn UNKNOWN`, "An Application Control policy has
-blocked this file," or a Smart App Control notification, Grok OAuth cannot
+If `grok --version` works in a terminal but the doctor still reports the CLI as
+blocked, upgrade first: releases before this fix picked the extensionless npm
+shim out of `where.exe grok` and could not spawn it, and that failure raises the
+same `spawn UNKNOWN` Windows application control does. The router now selects
+the `grok.cmd` shim and launches it through `cmd.exe`.
+
+If the command itself reports `spawn UNKNOWN`, "An Application Control policy
+has blocked this file," or a Smart App Control notification, Grok OAuth cannot
 complete login or refresh its session. Keep Smart App Control enabled; it does
 not offer a safe per-app bypass for this failure. Until xAI publishes an
 official CLI build that Windows allows, use the API-key provider instead:
@@ -157,7 +163,10 @@ do not share credentials or billing. Alibaba plan keys (`sk-sp-` prefix) are
 separate from pay-as-you-go Model Studio keys and only work with the plan's
 dedicated base URL. The Z.ai coding key is also distinct from general Z.ai
 platform keys; only the Coding Plan subscription key works with the coding
-endpoint.
+endpoint. The two live side by side as separate providers: `zai-coding` reads
+`ZAI_API_KEY` / `ZAI_CODING_API_KEY` for the plan, and `zai-api` reads
+`ZAI_PLATFORM_API_KEY` for pay-per-token traffic. A 401 on one route usually
+means the other route's key was stored.
 
 ## A provider changed its model IDs
 

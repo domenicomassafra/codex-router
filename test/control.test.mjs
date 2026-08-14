@@ -158,7 +158,8 @@ test("codex probe includes native GPT models and the configured default", () => 
   assert.equal(slice.loginFreeManaged, false);
   assert.equal(slice.modelSettings.picker.hidden.length, 0);
   assert.ok(["all", "selected", "proven"].includes(slice.modelSettings.subagents.mode));
-  assert.equal(slice.modelSettings.toolResultAging.enabled, true);
+  // Compaction is opt-in, so an unconfigured probe reports it off.
+  assert.equal(slice.modelSettings.toolResultAging.enabled, false);
 });
 
 test("codex probe exposes managed login-free mode without credential details", () => {
@@ -217,10 +218,12 @@ test("control toggles tool-result aging without a router restart", () => {
       ),
     );
   try {
+    // Starts off, because compaction is opted into.
+    assert.equal(runControl("status").enabled, false);
+    assert.equal(runControl("on").enabled, true);
     assert.equal(runControl("status").enabled, true);
     assert.equal(runControl("off").enabled, false);
     assert.equal(runControl("status").enabled, false);
-    assert.equal(runControl("on").enabled, true);
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
@@ -610,11 +613,37 @@ api_key = "ROLLBACK_QUERY_SECRET"
   }
 });
 
-test("aggregate overview covers every target", () => {
+// The state directory is pinned per case on purpose: this assertion used to
+// read the developer's own installation, so publishing to DeepSeek Harness on
+// the machine running the tests changed the expected target list.
+function overviewTargets(stateDir) {
   const output = execFileSync(process.execPath, [path.join(root, "src", "control.mjs"), "--json"], {
     cwd: root,
     encoding: "utf8",
+    env: { ...process.env, MODEL_ROUTER_STATE_DIR: stateDir },
   });
-  const overview = JSON.parse(output);
-  assert.deepEqual(Object.keys(overview.targets).sort(), ["codex"]);
+  return Object.keys(JSON.parse(output).targets).sort();
+}
+
+test("aggregate overview covers every target", () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "control-targets-"));
+  try {
+    assert.deepEqual(overviewTargets(stateDir), ["codex"]);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("the harness target appears only once its route has been published", () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "control-targets-dsh-"));
+  try {
+    writeFileSync(
+      path.join(stateDir, "dsh-models.json"),
+      `${JSON.stringify({ version: 1, route: "codex-router", models: [] })}\n`,
+      { mode: 0o600 },
+    );
+    assert.deepEqual(overviewTargets(stateDir), ["codex", "dsh"]);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });

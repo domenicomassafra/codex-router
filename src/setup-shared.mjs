@@ -20,7 +20,8 @@ import { grokOAuthStatus } from "./grok-oauth-status.mjs";
 import { SOURCE_ROOT } from "./paths.mjs";
 import { credentialStatus } from "./provider-credentials.mjs";
 import { providerOnboardingSnapshot } from "./provider-onboarding.mjs";
-import { configuredProviderIds, validateProviderIds } from "./provider-selection.mjs";
+import { defaultProviderIds, validateProviderIds } from "./provider-selection.mjs";
+import { commandOnPath, spawnableCommand } from "./spawnable-command.mjs";
 import { renderProviderChoices, toggleSelection } from "./setup-ui.mjs";
 
 // Target-agnostic setup helpers shared by every target's <target>-setup.mjs.
@@ -122,7 +123,9 @@ export function providerConfigured(provider) {
     if (provider.id === "grok-oauth") return grokOAuthStatus().configured;
     return false;
   }
-  return credentialStatus(provider, { persistent: true }).configured;
+  return provider.keyless || provider.authMode === "anonymous"
+    ? true
+    : credentialStatus(provider, { persistent: true }).configured;
 }
 
 // Per-provider hint for a selected-but-unconfigured OAuth provider.
@@ -134,21 +137,15 @@ function oauthSetupHint(provider) {
 }
 
 function executable(name) {
-  const finder = process.platform === "win32" ? "where.exe" : "which";
-  try {
-    return execFileSync(finder, [name], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .trim()
-      .split(/\r?\n/)[0];
-  } catch {
-    return undefined;
-  }
+  // Not the finder's first line: on Windows that is the extensionless npm
+  // shim, and every caller here goes on to spawn what it gets back.
+  return commandOnPath(name);
 }
 
 export function run(command, commandArgs) {
-  const result = spawnSync(command, commandArgs, {
+  const target = spawnableCommand(command, commandArgs);
+  const result = spawnSync(target.command, target.args, {
+    ...target.options,
     cwd: SOURCE_ROOT,
     env: process.env,
     stdio: "inherit",
@@ -162,7 +159,9 @@ export function run(command, commandArgs) {
 // Like run(), but reports success instead of throwing on a non-zero exit so the
 // caller can offer a retry (e.g. a cancelled `kimi login`).
 function tryRun(command, commandArgs) {
-  const result = spawnSync(command, commandArgs, {
+  const target = spawnableCommand(command, commandArgs);
+  const result = spawnSync(target.command, target.args, {
+    ...target.options,
     cwd: SOURCE_ROOT,
     env: process.env,
     stdio: "inherit",
@@ -203,11 +202,11 @@ function guidedSelection(appName) {
 // Resolve which provider ids to enable from --providers, or interactively.
 export function selectProviders({ requested, guided, appName }) {
   if (requested) {
-    if (requested === "configured") return configuredProviderIds();
+    if (requested === "configured") return defaultProviderIds();
     if (requested === "all") return [...PROVIDERS.keys()];
     return validateProviderIds(requested.split(","));
   }
-  return guided ? guidedSelection(appName) : configuredProviderIds();
+  return guided ? guidedSelection(appName) : defaultProviderIds();
 }
 
 function locateKimiCli() {
@@ -290,6 +289,7 @@ export function configureProvider(provider, { guided, providerKeyCommand }) {
     if (provider.id === "grok-oauth") onboardGrokOauth();
     else onboardKimiOauth();
   } else {
+    if (provider.authMode === "anonymous") return;
     const prompt = provider.credential?.prompt || `${provider.displayName} API key`;
     if (!confirm(`Enter ${prompt} securely now?`)) {
       throw new Error(`${provider.displayName} setup was cancelled.`);

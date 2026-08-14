@@ -8,7 +8,7 @@ import { detectLegacyInstallations, applyKnownMigrations, rollbackLatestMigratio
 import { grokOAuthStatus } from "./grok-oauth-status.mjs";
 import { PROVIDERS } from "./model-registry.mjs";
 import { kimiOAuthStatus } from "./oauth-status.mjs";
-import { SOURCE_ROOT } from "./paths.mjs";
+import { SOURCE_ROOT, TARGET } from "./paths.mjs";
 import { credentialStatus } from "./provider-credentials.mjs";
 import {
   hasSignInCli,
@@ -19,7 +19,7 @@ import {
 } from "./provider-onboarding.mjs";
 import { renderProviderChoices, stepHeader, toggleSelection } from "./setup-ui.mjs";
 import {
-  configuredProviderIds,
+  defaultProviderIds,
   selectedConfiguredListedModels,
   validateProviderIds,
   writeProviderSelection,
@@ -68,6 +68,14 @@ for (let index = 0; index < args.length; index += 1) {
 if (!setupArgumentError && migrateKnown && adoptNativeCatalog) {
   setupArgumentError =
     "--adopt-native-catalog cannot be combined with --migrate-known.";
+}
+// Both act on Codex's own configuration: one replaces an older router's
+// managed block, the other adopts the ChatGPT-plan catalog Codex reads. The
+// harness integration is one settings section and has neither.
+if (!setupArgumentError && TARGET !== "codex" && (migrateKnown || adoptNativeCatalog)) {
+  setupArgumentError = `${
+    migrateKnown ? "--migrate-known" : "--adopt-native-catalog"
+  } applies only to the Codex target.`;
 }
 
 function option(name) {
@@ -169,7 +177,9 @@ function providerConfigured(provider) {
     if (provider.id === "grok-oauth") return grokOAuthStatus().configured;
     return false;
   }
-  return credentialStatus(provider, { persistent: true }).configured;
+  return provider.keyless || provider.authMode === "anonymous"
+    ? true
+    : credentialStatus(provider, { persistent: true }).configured;
 }
 
 const colorEnabled = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
@@ -202,11 +212,11 @@ function guidedSelection() {
 function requestedSelection() {
   const requested = option("--providers");
   if (requested) {
-    if (requested === "configured") return configuredProviderIds();
+    if (requested === "configured") return defaultProviderIds();
     if (requested === "all") return [...PROVIDERS.keys()];
     return validateProviderIds(requested.split(","));
   }
-  return guided ? guidedSelection() : configuredProviderIds();
+  return guided ? guidedSelection() : defaultProviderIds();
 }
 
 function run(command, commandArgs, options = {}) {
@@ -253,6 +263,7 @@ function configureProvider(provider) {
       throw incomplete(`${provider.displayName} sign-in did not produce a usable credential.`);
     }
   } else {
+    if (provider.authMode === "anonymous") return;
     // A provider whose CLI mints its key in the browser gets that offer first,
     // because most people have an account long before they have a key. Saying
     // no falls through to the key prompt rather than failing the install.
@@ -297,6 +308,25 @@ function installTray() {
       run(path.join(SOURCE_ROOT, "scripts", "build-macos-tray-app.sh"), [bundleDir]);
       run("open", [bundleDir]);
       process.stdout.write(`Menu-bar companion installed at ${bundleDir} and opened.\n`);
+    } else if (process.platform === "win32") {
+      // Windows had no path through here at all: the tray was built by hand or
+      // not at all, and nothing brought it back after a reboot. Registering the
+      // logon task is what makes it stay, and it also starts the first
+      // instance, so there is no separate launch step.
+      run("powershell.exe", [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(SOURCE_ROOT, "scripts", "build-desktop-tray.ps1"),
+        "-BinaryOnly",
+      ]);
+      run(process.execPath, [path.join(SOURCE_ROOT, "src", "tray-service.mjs"), "install"]);
+      process.stdout.write(
+        "Desktop companion built, launched, and set to start at logon.\n" +
+          "Windows 11 hides new tray icons: click the ^ chevron by the clock to find it, and drag it onto the taskbar to pin it.\n",
+      );
     } else {
       run(path.join(SOURCE_ROOT, "bin", "model-router-tray"), []);
       process.stdout.write("Desktop companion built and launched.\n");
@@ -307,7 +337,10 @@ function installTray() {
         (process.platform === "darwin"
           ? "Recent macOS SDKs need the full Xcode app (not only the Command Line Tools) to build the menu-bar companion's SwiftUI macros.\n"
           : "") +
-        "The router itself is installed; retry later with ./bin/model-router-tray.\n",
+        (process.platform === "win32"
+          ? "The Tauri companion needs Rust stable and Cargo on PATH.\n" +
+            "The router itself is installed; retry later with .\\scripts\\build-desktop-tray.ps1 -BinaryOnly.\n"
+          : "The router itself is installed; retry later with ./bin/model-router-tray.\n"),
     );
   }
 }
@@ -406,13 +439,16 @@ async function main() {
   }
 
   nextStep("Review and install");
+  const dshTarget = TARGET === "dsh";
   if (guided) {
     process.stdout.write(
       `\nReady to install:\n` +
         `  Providers: ${providers.join(", ")}\n` +
         `  Migration: ${migration ? "recognized older router (rollback snapshot kept)" : "none needed"}\n` +
-        `  Native catalog: ${adoptNativeCatalog ? "adopt existing user catalog" : "capture from Codex"}\n` +
-        `  Changes: per-user background service and the managed Codex config block\n`,
+        (dshTarget
+          ? `  Changes: per-user background service and one provider route in the harness settings document\n`
+          : `  Native catalog: ${adoptNativeCatalog ? "adopt existing user catalog" : "capture from Codex"}\n` +
+            `  Changes: per-user background service and the managed Codex config block\n`),
     );
     if (!confirm("Proceed?")) {
       throw incomplete("Setup was cancelled before installing the service.");
@@ -454,7 +490,10 @@ async function main() {
   }
   run(process.execPath, [path.join(SOURCE_ROOT, "src", "doctor.mjs")]);
   process.stdout.write(
-    `\nCodex Router is ready with: ${providers.join(", ")}\nFully quit Codex, reopen it, and start a new task.\n`,
+    dshTarget
+      ? `\nDeepSeek Harness is ready with: ${providers.join(", ")}\n` +
+        `It reloads its settings document on the next request, so there is nothing to restart.\n`
+      : `\nCodex Router is ready with: ${providers.join(", ")}\nFully quit Codex, reopen it, and start a new task.\n`,
   );
   if (visionBridge?.enabled && visionBridge.engine) {
     process.stdout.write(

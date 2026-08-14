@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { validCallerSecret } from "./caller-auth.mjs";
 import { codexAuthStatus, findCodexBinary, runCodex } from "./codex-binary.mjs";
+import { commandOnPath, spawnableCommand } from "./spawnable-command.mjs";
 import { routedCodexAgentStatus } from "./codex-agent-catalog.mjs";
 import { privateFileIsProtected } from "./file-security.mjs";
 import { grokCliPreflight } from "./grok-cli.mjs";
@@ -24,6 +25,8 @@ import {
   CODEX_AGENTS_DIR,
   CODEX_HOME,
   CONFIG_PATH,
+  DSH_CATALOG_PATH,
+  DSH_SETTINGS_PATH,
   INTERNAL_SECRET_PATH,
   LITELLM_CONFIG_PATH,
   MERGED_CATALOG_PATH,
@@ -90,7 +93,16 @@ function bundledVenvProblem() {
 // says nothing here; only the load-error message does.
 function configLoadComplaint(binary, spawn) {
   try {
-    const result = spawn(binary, ["login", "status"], { encoding: "utf8", timeout: 10_000 });
+    // A .cmd shim needs the cmd.exe hop, or the probe dies before Codex is
+    // reached -- and a probe that never ran reports no complaint, which made
+    // this check silently pass on every npm-installed Windows Codex.
+    const target = spawnableCommand(binary, ["login", "status"]);
+    const result = spawn(target.command, target.args, {
+      ...target.options,
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+    });
     if (result.error) return undefined;
     return `${result.stdout || ""}\n${result.stderr || ""}`
       .split(/\r?\n/)
@@ -121,18 +133,6 @@ export function codexConfigLoadError({
   return undefined;
 }
 
-function commandOnPath(name) {
-  try {
-    return execFileSync(process.platform === "win32" ? "where.exe" : "which", [name], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .trim()
-      .split(/\r?\n/)[0];
-  } catch {
-    return undefined;
-  }
-}
 
 function readableSecret(target, validator) {
   if (!existsSync(target)) return false;
@@ -270,51 +270,64 @@ add(
   "Use macOS, Windows, or Linux with the Codex CLI.",
 );
 
-const codex = findCodexBinary();
-add(
-  codex ? "ok" : "fail",
-  "Codex binary",
-  codex || "not found",
-  "Install Codex or set CODEX_BIN to the Codex CLI binary.",
-);
+// Everything from here to the routing-config check describes the *client* this
+// command was invoked for. The shared router plane below it is checked the
+// same way whichever integration asked, because it is the same plane.
+const codexTarget = TARGET === "codex";
+const codex = codexTarget ? findCodexBinary() : undefined;
+if (codexTarget) {
+  add(
+    codex ? "ok" : "fail",
+    "Codex binary",
+    codex || "not found",
+    "Install Codex or set CODEX_BIN to the Codex CLI binary.",
+  );
+}
 // A Codex binary that cannot be spawned reads as "signed out" everywhere it is
 // probed, which silently removes every native model from the picker. Surface it
 // as its own failure instead of letting it masquerade as a logged-out session.
-const codexAuth = codexAuthStatus();
-add(
-  codexAuth.reason === "probe-failed" ? "fail" : "ok",
-  "Codex sign-in probe",
-  codexAuth.reason === "probe-failed"
-    ? `could not run ${codexAuth.binary} (${codexAuth.code || "spawn failed"})`
-    : codexAuth.reason,
-  "Set CODEX_BIN to a Codex CLI Node can spawn; on Windows use the codex.cmd shim, not the extensionless one.",
-);
-add(
-  existsSync(CONFIG_PATH) ? "ok" : "fail",
-  "Codex config",
-  CONFIG_PATH,
-  "Start Codex once, then run ./bin/doctor --fix.",
-);
+const codexAuth = codexTarget ? codexAuthStatus() : undefined;
+if (codexTarget) {
+  add(
+    codexAuth.reason === "probe-failed" ? "fail" : "ok",
+    "Codex sign-in probe",
+    codexAuth.reason === "probe-failed"
+      ? `could not run ${codexAuth.binary} (${codexAuth.code || "spawn failed"})`
+      : codexAuth.reason,
+    "Set CODEX_BIN to a Codex CLI Node can spawn; on Windows use the codex.cmd shim, not the extensionless one.",
+  );
+  add(
+    existsSync(CONFIG_PATH) ? "ok" : "fail",
+    "Codex config",
+    CONFIG_PATH,
+    "Start Codex once, then run ./bin/doctor --fix.",
+  );
+}
 // Every other check here can pass while Codex refuses to start, because a
 // single unparseable key aborts the whole config load -- no models, native or
 // routed. Codex's own loader is the only authority on that, and its error
 // names the file, line, and column, so it is worth quoting verbatim.
-const configLoad = codexConfigLoadError();
-add(
-  configLoad ? "fail" : "ok",
-  "Codex config loads",
-  configLoad || "Codex parses its configuration",
-  configLoad
-    ? "Codex cannot start until this line is fixed or removed; the message above names the file and line."
-    : undefined,
-);
-const configMode = existsSync(CONFIG_PATH)
-  ? statSync(CONFIG_PATH).mode & 0o777
+const configLoad = codexTarget ? codexConfigLoadError() : undefined;
+if (codexTarget) {
+  add(
+    configLoad ? "fail" : "ok",
+    "Codex config loads",
+    configLoad || "Codex parses its configuration",
+    configLoad
+      ? "Codex cannot start until this line is fixed or removed; the message above names the file and line."
+      : undefined,
+  );
+}
+// Both clients hold the managed base URL, which is a local caller capability,
+// so both documents are held to the same privacy bound.
+const privacyTarget = codexTarget ? CONFIG_PATH : DSH_SETTINGS_PATH;
+const configMode = existsSync(privacyTarget)
+  ? statSync(privacyTarget).mode & 0o777
   : undefined;
-const configProtected = privateFileIsProtected(CONFIG_PATH);
+const configProtected = privateFileIsProtected(privacyTarget);
 add(
   configProtected ? "ok" : "fail",
-  "Codex config privacy",
+  codexTarget ? "Codex config privacy" : "Harness settings privacy",
   configMode === undefined
     ? "missing"
     : process.platform === "win32"
@@ -327,9 +340,13 @@ let selection = { providers: [], explicit: false };
 let requiredRoutedModels = [];
 let catalogRoutedModels = [];
 let requiredModels = new Set();
-const routedTransportActive = routedCatalogConfigured(
-  existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf8") : "",
-);
+// "Is routed traffic actually reaching the gateway?" has a different witness
+// per client: Codex's managed config block, and the harness's published route
+// snapshot. Reading Codex's config for a harness install reported every routed
+// model as unoffered on a machine that has no Codex at all.
+const routedTransportActive = codexTarget
+  ? routedCatalogConfigured(existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf8") : "")
+  : existsSync(DSH_CATALOG_PATH);
 try {
   selection = providerSelectionStatus();
   // The Go provider exposes more gateway routes than the Codex App is meant
@@ -383,7 +400,10 @@ const catalogOk =
     ? requiredModels.size > 0 &&
       [...requiredModels].every((slug) => catalogModels.some((model) => model.slug === slug))
     : !catalogModels.some((model) => MODEL_BY_SLUG.has(String(model.slug))));
-add(
+// The merged catalog is the file Codex reads. A harness install has no
+// equivalent: its offer is the settings route, checked by "Harness routing
+// config" below.
+if (codexTarget) add(
   catalogOk ? "ok" : "fail",
   "Merged catalog",
   catalogOk
@@ -469,10 +489,13 @@ if (visionSettings.enabled && !visionEngine) {
 }
 // The same list the catalog writes definitions from, so a model switched off
 // as a subagent is expected to have no definition rather than a missing one.
-const agentStatus = routedCodexAgentStatus(
-  subagentEligibleModels(catalogRoutedModels, readMultiAgentSettings()),
-);
-add(
+// Codex-only: these are files in Codex's own agents directory, and the harness
+// spawns children through `dsh-tool-subagent` instead
+// (`./bin/model-router dsh subagent-preset`).
+const agentStatus = codexTarget
+  ? routedCodexAgentStatus(subagentEligibleModels(catalogRoutedModels, readMultiAgentSettings()))
+  : undefined;
+if (codexTarget) add(
   agentStatus.ok ? "ok" : "fail",
   "Routed model agents",
   agentStatus.ok
@@ -629,10 +652,14 @@ for (const provider of PROVIDERS.values()) {
     status.configured ? "ok" : selection.providers.includes(provider.id) ? "fail" : "warn",
     provider.keyless
       ? `${provider.displayName} endpoint`
+      : provider.authMode === "anonymous"
+        ? `${provider.displayName} anonymous endpoint`
       : `${provider.displayName} ${credentialNoun}`,
     status.configured ? status.source : "not configured",
     provider.keyless
       ? "Start Ollama, then run ./bin/control local-models list."
+      : provider.authMode === "anonymous"
+        ? provider.anonymousNote || "No key needed; only the provider's free models are available."
       : session
         ? `Run ${session.loginCommand}, or ./bin/provider-key ${provider.id} set.`
         : `Run ./bin/provider-key ${provider.id} set.`,
@@ -652,6 +679,8 @@ for (const provider of PROVIDERS.values()) {
       `${provider.displayName} models`,
       provider.keyless
         ? "no local models are checked, so the picker stays empty"
+        : provider.authMode === "anonymous"
+          ? `${provider.displayName} is ready; discover and curate its current free models`
         : `${credentialNoun} stored but no models curated; the picker stays empty`,
       // Local models are downloaded and checked, never curated from a remote
       // catalog, so naming `curate-models` here points at the wrong command.
@@ -662,12 +691,52 @@ for (const provider of PROVIDERS.values()) {
   }
 }
 
-try {
+if (TARGET === "dsh") {
+  try {
+    const dsh = childJson("dsh-config-manager.mjs", ["status"]);
+    add(
+      dsh.routeInstalled ? "ok" : "fail",
+      "Harness routing config",
+      dsh.routeInstalled
+        ? `llm-pi-ai.providers.${dsh.route} in ${dsh.settings}`
+        : dsh.structureError || `no ${dsh.route} route in ${dsh.settings}`,
+      "Run ./bin/model-router dsh enable.",
+    );
+    add(
+      dsh.credentialInstalled ? "ok" : "fail",
+      "Harness caller credential",
+      dsh.credentialInstalled
+        ? `stored in ${dsh.credentials}`
+        : `missing from ${dsh.credentials}`,
+      "Run ./bin/model-router dsh enable; the route resolves its key by reference, so an absent value fails every request.",
+    );
+    // Drift is the failure mode this integration has that Codex's does not:
+    // the harness hot-reloads its settings document, so anything else that
+    // writes it -- the Models page, a hand edit -- takes effect at once and can
+    // leave the published route naming models the gateway no longer routes.
+    add(
+      dsh.publishedModels === dsh.routableModels ? "ok" : "warn",
+      "Harness catalog freshness",
+      `published ${dsh.publishedModels}, routable ${dsh.routableModels}`,
+      "Run ./bin/model-router dsh enable to republish.",
+    );
+  } catch (error) {
+    add(
+      "fail",
+      "Harness routing config",
+      error instanceof Error ? error.message : String(error),
+      "Inspect $DSH_HOME/settings.yaml, then run ./bin/model-router dsh enable.",
+    );
+  }
+} else try {
   const config = childJson("config-manager.mjs", ["status"]);
+  const routingConfigOk =
+    config.mode === "router" ||
+    (config.signed_routing && config.signed_routing_managed);
   add(
-    config.mode === "router" ? "ok" : "fail",
+    routingConfigOk ? "ok" : "fail",
     "Codex routing config",
-    config.mode,
+    config.mode === "router" ? config.mode : routingConfigOk ? "signed-managed" : config.mode,
     "Run ./bin/enable or ./bin/doctor --fix.",
   );
   const providerModeOk = config.login_free
@@ -728,6 +797,27 @@ add(
 // must not read as a failure: a `fail` here sets the exit code and sends the
 // tray's Fix button down the full repair path for a router that is off on
 // purpose.
+// A ChatGPT session the router can no longer spend is not a router fault, but
+// it is why native models stop appearing in the harness -- and it is fixed by
+// opening Codex, which nothing else would tell the user.
+try {
+  const { nativeSessionStatus } = await import("./codex-native-session.mjs");
+  const session = nativeSessionStatus();
+  if (session.present && session.fallbackEnabled) {
+    const hours = session.expiresInHours;
+    add(
+      session.usable ? "ok" : "warn",
+      "Codex session for harness models",
+      session.usable
+        ? `valid${hours === undefined ? "" : ` for ${hours}h`}`
+        : "expired; open Codex once to renew it (native models are withheld until then)",
+      "Open Codex, or run `codex login`.",
+    );
+  }
+} catch {
+  // Never let a diagnostic be the thing that fails the doctor.
+}
+
 const followsHostApps = serviceFollowsHostApps();
 let serviceLoaded = false;
 let serviceStoppedByDesign = false;
@@ -766,8 +856,9 @@ add(
 
 // The skill pack that teaches custom routed models the native tools. Checks
 // are read-only; the fixes re-run ./bin/install, which refreshes exactly the
-// marker-owned directories.
-{
+// marker-owned directories. It lives in Codex's user-skill directory and
+// describes Codex's own tools, so it is not part of a harness install.
+if (codexTarget) {
   const status = skillPackStatus(CODEX_HOME);
   add(
     status.missing.length === 0 ? "ok" : "fail",

@@ -392,8 +392,13 @@ async function deepSeekAccount(fetchImpl) {
   return { status: "available", source: "official-api", metrics };
 }
 
-async function kimiApiAccount(fetchImpl) {
-  const provider = PROVIDERS.get("kimi-api");
+// Moonshot runs two platforms that share this balance route but nothing else:
+// the global console at platform.moonshot.ai and the mainland one at
+// platform.moonshot.cn. Accounts, billing, and keys are separate -- a key
+// minted on one is rejected by the other -- so they are separate providers here
+// and this probe is parameterized rather than pinned to one of them.
+async function kimiApiAccount(fetchImpl, providerId = "kimi-api") {
+  const provider = PROVIDERS.get(providerId);
   const credential = resolveProviderCredential(provider);
   if (!credential) return { status: "not-configured", source: "official-api", metrics: [] };
   const baseURL = (process.env[provider.baseUrlEnv] || provider.baseUrl).replace(/\/+$/, "");
@@ -579,6 +584,7 @@ function withHeaderQuota(providerId, fallback) {
 const ZAI_QUOTA_URL =
   process.env.ZAI_QUOTA_URL || "https://api.z.ai/api/monitor/usage/quota/limit";
 const ZAI_PLAN_DASHBOARD_URL = "https://z.ai/manage-apikey/coding-plan/personal/my-plan";
+const ZAI_API_DASHBOARD_URL = "https://z.ai/manage-apikey/billing";
 const QWEN_PLAN_DASHBOARD_URL =
   "https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=plan#/efm/subscription/token-plan";
 const OLLAMA_DASHBOARD_URL = "https://ollama.com/settings";
@@ -735,7 +741,9 @@ async function accountUsageFor(providerId, fetchImpl) {
   try {
     if (providerId === "chutes") return await chutesAccount(fetchImpl);
     if (providerId === "deepseek") return await deepSeekAccount(fetchImpl);
-    if (providerId === "kimi-api") return await kimiApiAccount(fetchImpl);
+    if (providerId === "kimi-api" || providerId === "kimi-api-cn") {
+      return await kimiApiAccount(fetchImpl, providerId);
+    }
     if (providerId === "kimi-oauth") return await kimiOAuthAccount(fetchImpl);
     if (providerId === "grok-oauth") return await grokOAuthAccount(fetchImpl);
     if (providerId === "grok-api") {
@@ -755,6 +763,20 @@ async function accountUsageFor(providerId, fetchImpl) {
         : { status: "not-configured", source: "official-api", metrics: [] };
     }
     if (providerId === "zai-coding") return await zaiCodingAccount(fetchImpl);
+    if (providerId === "zai-api") {
+      // The quota route zai-coding polls reports a Coding Plan's windows; a
+      // pay-per-token platform key has no plan behind it and Z.ai publishes no
+      // balance API, so link the billing page instead of inventing a number.
+      return resolveProviderCredential("zai-api")
+        ? {
+            ...withHeaderQuota(
+              providerId,
+              localOnly("Z.ai shows the platform balance only on z.ai; showing router traffic"),
+            ),
+            dashboardUrl: ZAI_API_DASHBOARD_URL,
+          }
+        : { status: "not-configured", source: "official-api", metrics: [] };
+    }
     if (providerId === "qwen-plan") {
       // Alibaba plan quotas are only visible behind a console session; never
       // import browser cookies. Link to the console instead.
@@ -782,6 +804,9 @@ async function accountUsageFor(providerId, fetchImpl) {
     if (providerId === "commandcode") return await commandCodeAccount(fetchImpl);
     if (providerId === "minimax-token-plan") return await minimaxTokenPlanAccount(fetchImpl);
     if (providerId === "opencode-go") return await opencodeGoAccount(fetchImpl);
+    if (providerId === "opencode-free" || providerId === "kilo-free") {
+      return withHeaderQuota(providerId, localOnly("Anonymous free-provider quota is not exposed; showing router traffic"));
+    }
     if (providerId === "github-copilot") return await githubCopilotAccount(fetchImpl);
     // Every remaining provider — including the catalog-only ones — reports its
     // window through response headers or shows router traffic alone.
