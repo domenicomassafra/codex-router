@@ -730,10 +730,13 @@ if (TARGET === "dsh") {
   }
 } else try {
   const config = childJson("config-manager.mjs", ["status"]);
+  const routingConfigOk =
+    config.mode === "router" ||
+    (config.signed_routing && config.signed_routing_managed);
   add(
-    config.mode === "router" ? "ok" : "fail",
+    routingConfigOk ? "ok" : "fail",
     "Codex routing config",
-    config.mode,
+    config.mode === "router" ? config.mode : routingConfigOk ? "signed-managed" : config.mode,
     "Run ./bin/enable or ./bin/doctor --fix.",
   );
   const providerModeOk = config.login_free

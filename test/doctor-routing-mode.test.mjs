@@ -95,6 +95,7 @@ wire_api = "responses"
       CODEX_HOME: codexHome,
       CODEX_ROUTER_PORT: "46192",
       CODEX_ROUTER_STATE_DIR: stateDir,
+      MODEL_ROUTER_LAUNCH_AGENTS_DIR: path.join(codexHome, "launch-agents"),
       MODEL_ROUTER_STATE_DIR: stateDir,
       MODEL_ROUTER_TARGET: "codex",
     };
@@ -171,6 +172,7 @@ test(
       CODEX_HOME: codexHome,
       CODEX_ROUTER_PORT: "46193",
       CODEX_ROUTER_STATE_DIR: stateDir,
+      MODEL_ROUTER_LAUNCH_AGENTS_DIR: path.join(codexHome, "launch-agents"),
       MODEL_ROUTER_STATE_DIR: stateDir,
       MODEL_ROUTER_TARGET: "codex",
     };
@@ -194,6 +196,79 @@ test(
         detail: "startup catalog is stale",
         fix: "Fully quit Codex, reopen it, and create a new task.",
       });
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "doctor accepts protected signed-provider routing without a root base URL",
+  { timeout: 30_000 },
+  () => {
+    const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-doctor-signed-"));
+    const stateDir = path.join(codexHome, "router-state");
+    const configPath = path.join(codexHome, "config.toml");
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    writeFileSync(configPath, 'model = "gpt-5.6-sol"\nmodel_provider = "openai"\n', {
+      mode: 0o600,
+    });
+    writeFileSync(
+      path.join(stateDir, "enabled-providers.json"),
+      `${JSON.stringify({ version: 1, providers: ["deepseek"] })}\n`,
+      { mode: 0o600 },
+    );
+    writeFileSync(path.join(stateDir, "deepseek-api-key.secret"), "test-key\n", {
+      mode: 0o600,
+    });
+    writeFileSync(path.join(stateDir, "caller-secret"), `${callerSecret}\n`, {
+      mode: 0o600,
+    });
+    writeFileSync(
+      path.join(stateDir, "internal-secret"),
+      "doctor-internal-service-key-with-sufficient-length\n",
+      { mode: 0o600 },
+    );
+    const env = {
+      ...process.env,
+      CODEX_BIN: writeCodexStub(codexHome),
+      CODEX_HOME: codexHome,
+      CODEX_ROUTER_PORT: "46194",
+      CODEX_ROUTER_STATE_DIR: stateDir,
+      MODEL_ROUTER_LAUNCH_AGENTS_DIR: path.join(codexHome, "launch-agents"),
+      MODEL_ROUTER_STATE_DIR: stateDir,
+      MODEL_ROUTER_TARGET: "codex",
+    };
+
+    try {
+      assert.equal(child("catalog.mjs", ["--refresh-native"], env).status, 0);
+      assert.equal(child("litellm-config.mjs", [], env).status, 0);
+      assert.equal(child("config-manager.mjs", ["enable"], env).status, 0);
+      assert.equal(child("config-manager.mjs", ["signed-enable"], env).status, 0);
+      assert.equal(
+        child(
+          "config-manager.mjs",
+          ["signed-model-set", "deepseek/deepseek-v4-flash"],
+          env,
+        ).status,
+        0,
+      );
+      const rootReset = readFileSync(configPath, "utf8")
+        .split("\n")
+        .filter((line) => !/^openai_base_url\s*=/.test(line))
+        .join("\n");
+      writeFileSync(configPath, rootReset, { mode: 0o600 });
+      const status = child("config-manager.mjs", ["status"], env);
+      assert.equal(status.status, 0, status.stderr);
+      assert.equal(JSON.parse(status.stdout).mode, "native");
+      assert.equal(JSON.parse(status.stdout).signed_routing_managed, true);
+
+      const doctor = child("doctor.mjs", ["--json"], env);
+      const report = JSON.parse(doctor.stdout);
+      const byName = new Map(report.checks.map((check) => [check.name, check]));
+      assert.equal(byName.get("Codex routing config").status, "ok");
+      assert.equal(byName.get("Codex routing config").detail, "signed-managed");
+      assert.equal(byName.get("Signed router coexistence").status, "ok");
     } finally {
       rmSync(codexHome, { recursive: true, force: true });
     }
