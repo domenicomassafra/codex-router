@@ -1257,6 +1257,49 @@ supports_websockets = false
   }
 });
 
+test("login-free mode adopts the exact orphaned signed provider left without state", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-login-free-orphan-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  const original = `model = "opencode-go/deepseek-v4-flash"
+model_provider = "codex-router"
+
+[model_providers.codex-router]
+name = "Codex Router (with ChatGPT)"
+base_url = "http://127.0.0.1:46192/_codex-router/${CALLER_KEY}/v1"
+wire_api = "responses"
+requires_openai_auth = true
+supports_standalone_web_search = true
+supports_websockets = false
+# END codex-router-signed-provider-managed
+`;
+  writeFileSync(configPath, original, { mode: 0o600 });
+  try {
+    const enabled = run("login-free-enable", codexHome, stateDir, [
+      "opencode-go/deepseek-v4-flash",
+    ]);
+    assert.equal(enabled.mode, "router");
+    assert.equal(enabled.login_free, true);
+    assert.equal(enabled.model_provider, "codex-router");
+    const fixed = readFileSync(configPath, "utf8");
+    assert.match(fixed, /# BEGIN codex-router-provider-managed/);
+    assert.doesNotMatch(fixed, /# END codex-router-signed-provider-managed/);
+
+    writeFileSync(
+      configPath,
+      original.replace("supports_websockets = false", "supports_websockets = true"),
+      { mode: 0o600 },
+    );
+    rmSync(path.join(stateDir, "provider-mode.json"), { force: true });
+    assert.throws(
+      () => run("login-free-enable", codexHome, stateDir, ["opencode-go/deepseek-v4-flash"]),
+      /user-owned model provider/i,
+    );
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test("signed routing snapshots a quoted provider id containing a closing bracket", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-quoted-id-"));
   const stateDir = path.join(codexHome, "router-state");
