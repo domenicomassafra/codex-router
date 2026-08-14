@@ -381,6 +381,15 @@ function modelProblem(model, providers, slugs, gatewayModels) {
   ) {
     return `model ${model.slug} has an invalid supportsImageDetailOriginal`;
   }
+  // `codexAppPublished` is the registry-declared Codex App publication policy
+  // for opencode-go models (see codexAppPublishedModels in catalog.mjs). It is
+  // a boolean opt-in per model, never a free-form value.
+  if (
+    model.codexAppPublished !== undefined &&
+    typeof model.codexAppPublished !== "boolean"
+  ) {
+    return `model ${model.slug} has an invalid codexAppPublished`;
+  }
   // The router's vision bridge covers every text-only model once the operator
   // enables it, so this field exists only to opt one out -- a model whose
   // upstream mangles long injected transcripts, for example. Setting it true

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -941,10 +942,114 @@ Authorization = "Bearer PROVIDER_HEADER_SECRET"
         restored.indexOf("[model_providers.custom.http_headers]"),
     );
     assert.doesNotMatch(restored, /codex-router-signed-provider-managed/);
+    // Item 5: signed-disable must restore config.toml byte-identically,
+    // not merely structurally. Any normalization here would rewrite the user's
+    // only copy of their provider secrets and comments.
+    assert.equal(restored, original);
   } finally {
     rmSync(codexHome, { recursive: true, force: true });
   }
 });
+
+const SIGNED_FILE_OP_LABELS = ["write", "protect-temp", "rename", "protect-target"];
+
+for (const label of SIGNED_FILE_OP_LABELS) {
+  test(`signed-enable failure after ${label} leaves config byte-identical and no temp residual`, () => {
+    const codexHome = mkdtempSync(path.join(os.tmpdir(), `codex-router-fail-enable-${label}-`));
+    const stateDir = path.join(codexHome, "router-state");
+    const configPath = path.join(codexHome, "config.toml");
+    const original = `model = "gpt-5.6-sol"
+model_provider = "custom"
+
+[model_providers.custom]
+name = "CC Switch"
+base_url = "https://example.invalid/v1"
+wire_api = "responses"
+`;
+    writeFileSync(configPath, original, { mode: 0o600 });
+    try {
+      assert.throws(
+        () =>
+          run("signed-enable", codexHome, stateDir, [], {
+            CODEX_ROUTER_TEST_FAIL_FILE_OPS: label,
+          }),
+        /Forced failure at file operation/,
+      );
+      assert.equal(readFileSync(configPath, "utf8"), original);
+      const residuals = readdirSync(path.dirname(configPath)).filter((name) =>
+        name.includes(".tmp."),
+      );
+      assert.deepEqual(residuals, []);
+      assert.equal(existsSync(path.join(stateDir, "signed-provider-mode.json")), false);
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true });
+    }
+  });
+}
+
+test("signed-enable failure during unlink cleanup leaves config byte-identical with an inert temp residual", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-fail-enable-unlink-"));
+  const stateDir = path.join(codexHome, "router-state");
+  const configPath = path.join(codexHome, "config.toml");
+  const original = `model = "gpt-5.6-sol"
+model_provider = "custom"
+
+[model_providers.custom]
+name = "CC Switch"
+base_url = "https://example.invalid/v1"
+wire_api = "responses"
+`;
+  writeFileSync(configPath, original, { mode: 0o600 });
+  try {
+    assert.throws(
+      () =>
+        run("signed-enable", codexHome, stateDir, [], {
+          CODEX_ROUTER_TEST_FAIL_FILE_OPS: "protect-temp,unlink",
+        }),
+      /Forced failure at file operation/,
+    );
+    // The target is never touched; a failed cleanup leaves only an inert
+    // `.tmp.<pid>` residual that a later write with a fresh pid ignores.
+    assert.equal(readFileSync(configPath, "utf8"), original);
+    assert.equal(existsSync(path.join(stateDir, "signed-provider-mode.json")), false);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+for (const label of SIGNED_FILE_OP_LABELS) {
+  test(`signed-disable failure after ${label} leaves the enabled config byte-identical`, () => {
+    const codexHome = mkdtempSync(path.join(os.tmpdir(), `codex-router-fail-disable-${label}-`));
+    const stateDir = path.join(codexHome, "router-state");
+    const configPath = path.join(codexHome, "config.toml");
+    const original = `model = "gpt-5.6-sol"
+model_provider = "custom"
+
+[model_providers.custom]
+name = "CC Switch"
+base_url = "https://example.invalid/v1"
+wire_api = "responses"
+`;
+    writeFileSync(configPath, original, { mode: 0o600 });
+    try {
+      run("signed-enable", codexHome, stateDir);
+      const enabled = readFileSync(configPath, "utf8");
+      assert.throws(
+        () =>
+          run("signed-disable", codexHome, stateDir, [], {
+            CODEX_ROUTER_TEST_FAIL_FILE_OPS: label,
+          }),
+        /Forced failure at file operation/,
+      );
+      // The disable failed to commit: the config stays exactly at the enabled
+      // bytes and the signed sidecar is still present for a later retry.
+      assert.equal(readFileSync(configPath, "utf8"), enabled);
+      assert.equal(existsSync(path.join(stateDir, "signed-provider-mode.json")), true);
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true });
+    }
+  });
+}
 
 test("signed-model-set promotes a native root to the router provider after catalog publication", () => {
   const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-router-signed-model-set-"));

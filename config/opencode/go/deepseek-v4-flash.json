@@ -7,6 +7,7 @@
       "upstreamModel": "opencode-go/deepseek-v4-flash",
       "provider": "opencode-go",
       "listed": true,
+      "codexAppPublished": true,
       "displayName": "DeepSeek V4 Flash (opencode Go)",
       "description": "DeepSeek V4 Flash through the opencode Go subscription.",
       "priority": 37,
