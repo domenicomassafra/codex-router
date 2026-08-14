@@ -2777,6 +2777,89 @@ test("API forwarder downgrades forced tool choices only for models that declare 
   }
 });
 
+test("API forwarder downgrades forced tool choices for opencode Go DeepSeek models", async () => {
+  const upstreamRequests = [];
+  const upstream = await mockServer(async (request, response) => {
+    upstreamRequests.push({ headers: request.headers, body: await bodyJson(request) });
+    json(response, 200, { choices: [] });
+  });
+  const forwarderPort = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    CODEX_ROUTER_API_PORT: String(forwarderPort),
+    OPENCODE_GO_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    OPENCODE_GO_API_KEY: "TEST_OPENCODE_GO_API_KEY",
+    CODEX_ROUTER_QUIET: "1",
+  });
+
+  async function forward(gatewayModel, body) {
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${INTERNAL_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: gatewayModel,
+        messages: [{ role: "user", content: "test" }],
+        ...body,
+      }),
+    });
+    assert.equal(response.status, 200);
+    return upstreamRequests.at(-1);
+  }
+
+  try {
+    await waitFor(`http://127.0.0.1:${forwarderPort}/health`, forwarder, {
+      Authorization: `Bearer ${INTERNAL_KEY}`,
+    });
+    // The opencode Go subscription fronts DeepSeek in thinking mode, which
+    // rejects a forced tool choice with HTTP 400 ("Thinking mode does not
+    // support this tool_choice") while still calling tools under "auto". The
+    // compatibility probe sends the string form and the subagent payload relay
+    // sends the object form, so both must arrive as auto rather than failing
+    // the turn. The restriction travels with the upstream model through the
+    // reseller, so the profile normalizes the tool choice and nothing else.
+    for (const gatewayModel of [
+      "opencode-go-deepseek-v4-flash",
+      "opencode-go-deepseek-v4-pro",
+    ]) {
+      for (const toolChoice of [
+        "required",
+        { type: "function", function: { name: "relay_external_agent_payload" } },
+      ]) {
+        const request = await forward(gatewayModel, { tool_choice: toolChoice });
+        assert.equal(request.headers.authorization, "Bearer TEST_OPENCODE_GO_API_KEY");
+        assert.equal(request.body.model, gatewayModel.replace("opencode-go-", "opencode-go/"));
+        assert.equal(request.body.tool_choice, "auto");
+        assert.equal("thinking" in request.body, false);
+      }
+
+      // "none" suppresses tool calls; the compaction turn relies on it.
+      const suppressed = await forward(gatewayModel, { tool_choice: "none" });
+      assert.equal(suppressed.body.tool_choice, "none");
+
+      // An absent choice stays absent so the upstream applies its own default.
+      const absent = await forward(gatewayModel, {});
+      assert.equal("tool_choice" in absent.body, false);
+    }
+
+    // Unlike the DeepSeek official API profile, the reseller path must not
+    // inject a thinking block or strip sampling controls: the model already
+    // thinks by default and the Go surface is plain OpenAI.
+    const untouched = await forward("opencode-go-deepseek-v4-flash", {
+      reasoning_effort: "high",
+      temperature: 0.4,
+      tool_choice: "required",
+    });
+    assert.equal(untouched.body.reasoning_effort, "high");
+    assert.equal(untouched.body.temperature, 0.4);
+    assert.equal(untouched.body.tool_choice, "auto");
+  } finally {
+    await stopChild(forwarder);
+    await closeServer(upstream.server);
+  }
+});
+
 
 test("API forwarder routes MiniMax M3 streaming tool calls with adaptive thinking", async () => {
   const upstreamRequests = [];
