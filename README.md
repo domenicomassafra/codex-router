@@ -465,7 +465,6 @@ is live.
 | Grok 4.5 (Command Code) | `commandcode/grok-4.5` |
 | GPT 5.6 Luna (Command Code) | `commandcode/gpt-5.6-luna` |
 | GPT 5.5 (Command Code) | `commandcode/gpt-5.5` |
-| Gemini 3.5 Flash (Command Code) | `commandcode/gemini-3.5-flash` |
 | Hy3 (Command Code) | `commandcode/hy3-paid` |
 | Step 3.7 Flash (Command Code) | `commandcode/step-3.7-flash` |
 | Claude Sonnet 5 (Command Code) | `commandcode-messages/claude-sonnet-5` |
