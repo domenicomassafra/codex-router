@@ -7,7 +7,7 @@
       "upstreamModel": "gpt-5.5",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "GPT 5.5 (Command Code)",
+      "displayName": "GPT 5.5",
       "description": "GPT 5.5 through the Command Code Provider API.",
       "priority": 119,
       "defaultEffort": "medium",

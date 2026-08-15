@@ -7,7 +7,7 @@
       "upstreamModel": "stepfun/Step-3.7-Flash",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Step 3.7 Flash (Command Code)",
+      "displayName": "Step 3.7 Flash",
       "description": "Step 3.7 Flash through the Command Code Provider API.",
       "priority": 123,
       "defaultEffort": "high",

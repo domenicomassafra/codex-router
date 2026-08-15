@@ -289,16 +289,15 @@ const MAX_EFFORT_SINCE = [0, 143, 0];
 // DeepSeek routes the owner has selected.  This is a publication policy only;
 // the router registry still retains the official DeepSeek provider as its
 // separately-addressable fallback and keeps the remaining OpenCode entries
-// available to their own consumers.
-export const CODEX_APP_OPENCODE_GO_ALLOWLIST = new Set([
-  "opencode-go/deepseek-v4-flash",
-  "opencode-go/deepseek-v4-pro",
-]);
-
+// available to their own consumers.  Which opencode-go routes the Codex App
+// may offer is declared on each registry model (`codexAppPublished: true` in
+// config/opencode/go/*.json), so the policy travels with the registry for
+// every installer instead of living as a hard-coded slug list here.
 export function codexAppPublishedModels(models) {
   return models.filter((model) => {
     const slug = String(model?.slug || "");
-    return !slug.startsWith("opencode-go") || CODEX_APP_OPENCODE_GO_ALLOWLIST.has(slug);
+    if (!slug.startsWith("opencode-go")) return true;
+    return model?.codexAppPublished === true;
   });
 }
 

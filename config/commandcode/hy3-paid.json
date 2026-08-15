@@ -7,7 +7,7 @@
       "upstreamModel": "tencent/hy3-paid",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Hy3 (Command Code)",
+      "displayName": "Hy3",
       "description": "Tencent Hy3 through the Command Code Provider API.",
       "priority": 122,
       "defaultEffort": "high",

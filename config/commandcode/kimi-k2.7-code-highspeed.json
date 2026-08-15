@@ -7,7 +7,7 @@
       "upstreamModel": "moonshotai/Kimi-K2.7-Code-Highspeed",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Kimi K2.7 Code HighSpeed (Command Code)",
+      "displayName": "Kimi K2.7 Code HighSpeed",
       "description": "Kimi K2.7 Code HighSpeed through the Command Code Provider API.",
       "priority": 106,
       "defaultEffort": "high",

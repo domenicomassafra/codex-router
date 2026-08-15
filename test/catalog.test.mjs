@@ -60,10 +60,10 @@ const grok = {
   multiAgentVersion: "v2",
 };
 
-test("Codex App publishes only the two selected OpenCode Go DeepSeek routes", () => {
+test("Codex App publishes only the two registry-declared OpenCode Go DeepSeek routes", () => {
   const published = codexAppPublishedModels([
-    { slug: "opencode-go/deepseek-v4-flash" },
-    { slug: "opencode-go/deepseek-v4-pro" },
+    { slug: "opencode-go/deepseek-v4-flash", codexAppPublished: true },
+    { slug: "opencode-go/deepseek-v4-pro", codexAppPublished: true },
     { slug: "opencode-go/grok-4.5" },
     { slug: "opencode-go-messages/minimax-m3" },
     { slug: "opencode-go-responses/gpt-5.6-luna" },

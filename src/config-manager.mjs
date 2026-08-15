@@ -734,21 +734,47 @@ function readProviderModeState() {
   }
 }
 
-function writeProviderModeState(value) {
-  mkdirSync(path.dirname(CODEX_PROVIDER_MODE_PATH), { recursive: true, mode: 0o700 });
-  const temporary = `${CODEX_PROVIDER_MODE_PATH}.tmp.${process.pid}`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+// The router's own documents are written temp-then-rename so a reader never
+// observes a half-written file. Each step is failure-injectable under
+// CODEX_ROUTER_TEST_FAIL_FILE_OPS (comma-separated: write|protect-temp|
+// rename|protect-target|unlink) so the regression tests can prove a failed
+// step never corrupts the target and always restores the prior bytes.
+function fileOpFailure(label) {
+  const active = process.env.CODEX_ROUTER_TEST_FAIL_FILE_OPS;
+  if (active && active.split(",").includes(label)) {
+    throw new Error(`Forced failure at file operation: ${label}`);
+  }
+}
+
+function writeProtectedFile(targetPath, contents) {
+  mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o700 });
+  const temporary = `${targetPath}.tmp.${process.pid}`;
   try {
+    writeFileSync(temporary, contents, { encoding: "utf8", mode: 0o600 });
+    fileOpFailure("write");
     protectPrivateFile(temporary);
-    renameSync(temporary, CODEX_PROVIDER_MODE_PATH);
-    protectPrivateFile(CODEX_PROVIDER_MODE_PATH);
+    fileOpFailure("protect-temp");
+    renameSync(temporary, targetPath);
+    fileOpFailure("rename");
+    protectPrivateFile(targetPath);
+    fileOpFailure("protect-target");
   } catch (error) {
-    if (existsSync(temporary)) unlinkSync(temporary);
+    if (existsSync(temporary)) {
+      try {
+        fileOpFailure("unlink");
+        unlinkSync(temporary);
+      } catch {
+        // A failed cleanup leaves a `.tmp.<pid>` residual but never a corrupt
+        // target; the next successful write uses a fresh pid and the residual
+        // is inert.
+      }
+    }
     throw error;
   }
+}
+
+function writeProviderModeState(value) {
+  writeProtectedFile(CODEX_PROVIDER_MODE_PATH, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function clearProviderModeState() {
@@ -793,20 +819,7 @@ function readSignedProviderModeState() {
 }
 
 function writeSignedProviderModeState(value) {
-  mkdirSync(path.dirname(SIGNED_PROVIDER_MODE_PATH), { recursive: true, mode: 0o700 });
-  const temporary = `${SIGNED_PROVIDER_MODE_PATH}.tmp.${process.pid}`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  try {
-    protectPrivateFile(temporary);
-    renameSync(temporary, SIGNED_PROVIDER_MODE_PATH);
-    protectPrivateFile(SIGNED_PROVIDER_MODE_PATH);
-  } catch (error) {
-    if (existsSync(temporary)) unlinkSync(temporary);
-    throw error;
-  }
+  writeProtectedFile(SIGNED_PROVIDER_MODE_PATH, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function clearSignedProviderModeState() {
@@ -1202,17 +1215,7 @@ function restoreNativeCatalog(contents) {
 }
 
 function atomicWrite(contents) {
-  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
-  const temporary = `${CONFIG_PATH}.tmp.${process.pid}`;
-  writeFileSync(temporary, contents, { encoding: "utf8", mode: 0o600 });
-  try {
-    protectPrivateFile(temporary);
-    renameSync(temporary, CONFIG_PATH);
-    protectPrivateFile(CONFIG_PATH);
-  } catch (error) {
-    if (existsSync(temporary)) unlinkSync(temporary);
-    throw error;
-  }
+  writeProtectedFile(CONFIG_PATH, contents);
 }
 
 if (!new Set([
@@ -1541,7 +1544,20 @@ if (command === "reconcile") {
     throw new Error("Codex login-free mode is not managed by this router.");
   }
   if (command === "login-free-disable" || command === "signed-disable") {
-    next = restored;
+    if (command === "signed-disable") {
+      // signed-disable restores the pre-signed state byte-identically: strip
+      // every router-managed block (root, provider table, multi-agent,
+      // concurrency, signed slot) exactly like the ordinary disable path, then
+      // rejoin. The signed sidecar is cleared after the write below.
+      const cleaned = clean(restored);
+      next = `${[
+        ...trimBlankEdges(cleaned.rootLines),
+        "",
+        ...trimBlankEdges(cleaned.tableLines),
+      ].join("\n").trimEnd()}\n`;
+    } else {
+      next = restored;
+    }
   } else {
     if (signedState?.version === 1) {
       const restoredRoot = splitRoot(restored).rootLines;
@@ -1613,11 +1629,15 @@ if (pendingProviderModeState) writeProviderModeState(pendingProviderModeState);
 let configWritten = false;
 let signedStateWritten = false;
 try {
-  atomicWrite(next);
+  // Mark both writes committed BEFORE invoking them: a failure inside the
+  // writer (for example after its rename already committed) must still trigger
+  // the rollback below so `next` is never left half-applied over the user's
+  // only copy of their config.
   configWritten = true;
+  atomicWrite(next);
   if (pendingSignedProviderModeState) {
-    writeSignedProviderModeState(pendingSignedProviderModeState);
     signedStateWritten = true;
+    writeSignedProviderModeState(pendingSignedProviderModeState);
   }
   if (activateNativeCatalogSourceAfterWrite) activateNativeCatalogSource();
 } catch (error) {

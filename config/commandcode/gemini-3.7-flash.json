@@ -7,7 +7,7 @@
       "upstreamModel": "google/gemini-3.7-flash",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Gemini 3.7 Flash (Command Code)",
+      "displayName": "Gemini 3.7 Flash",
       "description": "Gemini 3.7 Flash through the Command Code Provider API.",
       "priority": 120,
       "defaultEffort": "high",

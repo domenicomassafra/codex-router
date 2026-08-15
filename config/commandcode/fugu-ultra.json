@@ -7,7 +7,7 @@
       "upstreamModel": "sakana/fugu-ultra",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Fugu Ultra (Command Code)",
+      "displayName": "Fugu Ultra",
       "description": "Fugu Ultra through the Command Code Provider API.",
       "priority": 126,
       "defaultEffort": "high",

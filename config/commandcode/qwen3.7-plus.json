@@ -7,7 +7,7 @@
       "upstreamModel": "Qwen/Qwen3.7-Plus",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Qwen3.7 Plus (Command Code)",
+      "displayName": "Qwen3.7 Plus",
       "description": "Qwen3.7 Plus through the Command Code Provider API.",
       "priority": 109,
       "defaultEffort": "high",

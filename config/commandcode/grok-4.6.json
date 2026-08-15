@@ -7,7 +7,7 @@
       "upstreamModel": "xai/grok-4.6",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Grok 4.6 (Command Code)",
+      "displayName": "Grok 4.6",
       "description": "Grok 4.6 through the Command Code Provider API.",
       "priority": 114,
       "defaultEffort": "high",
