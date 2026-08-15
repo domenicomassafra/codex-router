@@ -7,7 +7,7 @@
       "upstreamModel": "zai-org/GLM-5.2-Fast",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "GLM-5.2 Fast (Command Code)",
+      "displayName": "GLM-5.2 Fast",
       "description": "GLM-5.2 Fast through the Command Code Provider API.",
       "priority": 103,
       "defaultEffort": "high",

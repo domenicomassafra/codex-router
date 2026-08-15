@@ -7,7 +7,7 @@
       "upstreamModel": "kimi-k2.7-code",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "Kimi K2.7 Code (opencode Go)",
+      "displayName": "Kimi K2.7 Code",
       "description": "Kimi K2.7 Code through the opencode Go subscription.",
       "priority": 34,
       "defaultEffort": "high",

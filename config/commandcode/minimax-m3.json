@@ -7,7 +7,7 @@
       "upstreamModel": "MiniMaxAI/MiniMax-M3",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "MiniMax M3 (Command Code)",
+      "displayName": "MiniMax M3",
       "description": "MiniMax M3 through the Command Code Provider API.",
       "priority": 111,
       "defaultEffort": "high",

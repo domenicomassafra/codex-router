@@ -7,7 +7,7 @@
       "upstreamModel": "poolside/laguna-s-2.1-free",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Laguna S 2.1 (Command Code)",
+      "displayName": "Laguna S 2.1",
       "description": "Laguna S 2.1 through the Command Code Provider API.",
       "priority": 129,
       "defaultEffort": "high",

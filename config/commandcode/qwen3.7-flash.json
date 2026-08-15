@@ -7,7 +7,7 @@
       "upstreamModel": "Qwen/Qwen3.7-Flash",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Qwen3.7 Flash (Command Code)",
+      "displayName": "Qwen3.7 Flash",
       "description": "Qwen3.7 Flash through the Command Code Provider API.",
       "priority": 110,
       "defaultEffort": "high",

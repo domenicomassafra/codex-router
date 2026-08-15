@@ -46,7 +46,6 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "commandcode/deepseek-v4-flash",
       "commandcode/deepseek-v4-pro",
       "commandcode/fugu-ultra",
-      "commandcode/gemini-3.5-flash",
       "commandcode/gemini-3.7-flash",
       "commandcode/glm-5.2-fast",
       "commandcode/glm-5.2",

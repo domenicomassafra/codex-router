@@ -7,7 +7,7 @@
       "upstreamModel": "glm-5.1",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "GLM-5.1 (opencode Go)",
+      "displayName": "GLM-5.1",
       "description": "GLM-5.1 through the opencode Go subscription.",
       "priority": 32,
       "upgradeTo": {

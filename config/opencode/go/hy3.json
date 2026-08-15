@@ -7,7 +7,7 @@
       "upstreamModel": "hy3",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "Hy3 (opencode Go)",
+      "displayName": "Hy3",
       "description": "Hy3 through the opencode Go subscription.",
       "priority": 46,
       "defaultEffort": "high",

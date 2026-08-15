@@ -8,7 +8,7 @@
       "provider": "opencode-go",
       "listed": true,
       "codexAppPublished": true,
-      "displayName": "DeepSeek V4 Flash (opencode Go)",
+      "displayName": "DeepSeek V4 Flash",
       "description": "DeepSeek V4 Flash through the opencode Go subscription.",
       "priority": 37,
       "defaultEffort": "high",

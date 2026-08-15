@@ -450,7 +450,7 @@ test("router rewrites gateway errors to name the failing provider", async () => 
     const payload = await response.json();
     assert.equal(
       payload.error.message,
-      "Something is wrong at opencode: Grok 4.5 (opencode Go) is unavailable right now. Retry in a few minutes or switch models. (HTTP 503: Upstream request failed: Endpoint is unavailable.)",
+      "Something is wrong at opencode: Grok 4.5 is unavailable right now. Retry in a few minutes or switch models. (HTTP 503: Upstream request failed: Endpoint is unavailable.)",
     );
     assert.equal(payload.error.type, "server_error");
     assert.ok(!payload.error.message.includes("litellm"));

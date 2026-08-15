@@ -7,7 +7,7 @@
       "upstreamModel": "kimi-k2.6",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "Kimi K2.6 (opencode Go)",
+      "displayName": "Kimi K2.6",
       "description": "Kimi K2.6 through the opencode Go subscription.",
       "priority": 35,
       "upgradeTo": {

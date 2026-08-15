@@ -7,7 +7,7 @@
       "upstreamModel": "kimi-k3",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "Kimi K3 (opencode Go)",
+      "displayName": "Kimi K3",
       "description": "Kimi K3 through the opencode Go subscription.",
       "priority": 33,
       "defaultEffort": "max",

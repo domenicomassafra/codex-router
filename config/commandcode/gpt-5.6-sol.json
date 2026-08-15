@@ -7,7 +7,7 @@
       "upstreamModel": "gpt-5.6-sol",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "GPT 5.6 Sol (Command Code)",
+      "displayName": "GPT 5.6 Sol",
       "description": "GPT 5.6 Sol through the Command Code Provider API.",
       "priority": 117,
       "defaultEffort": "medium",

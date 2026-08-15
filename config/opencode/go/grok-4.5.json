@@ -7,7 +7,7 @@
       "upstreamModel": "grok-4.5",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "Grok 4.5 (opencode Go)",
+      "displayName": "Grok 4.5",
       "description": "Grok 4.5 through the opencode Go subscription.",
       "priority": 30,
       "defaultEffort": "high",

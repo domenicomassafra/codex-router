@@ -7,7 +7,7 @@
       "upstreamModel": "gpt-5.6-luna",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "GPT 5.6 Luna (Command Code)",
+      "displayName": "GPT 5.6 Luna",
       "description": "GPT 5.6 Luna through the Command Code Provider API.",
       "priority": 118,
       "defaultEffort": "medium",

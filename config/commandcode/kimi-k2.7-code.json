@@ -7,7 +7,7 @@
       "upstreamModel": "moonshotai/Kimi-K2.7-Code",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Kimi K2.7 Code (Command Code)",
+      "displayName": "Kimi K2.7 Code",
       "description": "Kimi K2.7 Code through the Command Code Provider API.",
       "priority": 105,
       "defaultEffort": "high",

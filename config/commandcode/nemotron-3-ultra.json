@@ -7,7 +7,7 @@
       "upstreamModel": "nvidia/nemotron-3-ultra-550b-a55b",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Nemotron 3 Ultra (Command Code)",
+      "displayName": "Nemotron 3 Ultra",
       "description": "Nemotron 3 Ultra through the Command Code Provider API.",
       "priority": 125,
       "defaultEffort": "high",

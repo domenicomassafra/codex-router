@@ -7,7 +7,7 @@
       "upstreamModel": "Qwen/Qwen3.8-Max",
       "provider": "commandcode",
       "listed": true,
-      "displayName": "Qwen3.8 Max (Command Code)",
+      "displayName": "Qwen3.8 Max",
       "description": "Qwen3.8 Max through the Command Code Provider API.",
       "priority": 107,
       "defaultEffort": "high",

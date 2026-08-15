@@ -7,7 +7,7 @@
       "upstreamModel": "glm-5.2",
       "provider": "opencode-go",
       "listed": true,
-      "displayName": "GLM-5.2 (opencode Go)",
+      "displayName": "GLM-5.2",
       "description": "GLM-5.2 through the opencode Go subscription.",
       "priority": 31,
       "defaultEffort": "max",
